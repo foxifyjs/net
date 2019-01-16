@@ -1,18 +1,13 @@
-# turbo-net
+# Net
 
 Low level TCP library for Node.js
 
-```
-npm install turbo-net
-```
-
-[![build status](https://travis-ci.org/mafintosh/turbo-net.svg?branch=master)](https://travis-ci.org/mafintosh/turbo-net)
-[![Build status](https://ci.appveyor.com/api/projects/status/1rbh090naan36163/branch/master?svg=true)](https://ci.appveyor.com/project/mafintosh/turbo-net/branch/master)
+`npm i @foxify/net`
 
 ## Usage
 
 ``` js
-const turbo = require('turbo-net')
+const turbo = require('@foxify/net')
 
 // Echo server that allocates constant memory
 

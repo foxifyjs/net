@@ -2,7 +2,7 @@ const tape = require('tape')
 const turbo = require('../')
 
 tape('basic', function (t) {
-  const opts = {allowHalfOpen: true}
+  const opts = { allowHalfOpen: true }
 
   const server = turbo.createServer(opts, onsocket)
 
