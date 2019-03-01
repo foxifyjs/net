@@ -1,140 +1,137 @@
-const tape = require('tape')
-const turbo = require('../')
+const turbo = require("..");
 
-tape('writev', function (t) {
-  const server = turbo.createServer(echo, { reusePort: false })
+test("writev", done => {
+  const server = turbo.createServer(echo, { reusePort: false });
 
-  server.listen(function () {
-    const client = turbo.connect(server.address().port)
+  server.listen(() => {
+    const client = turbo.connect(server.address().port);
 
-    read(client, 11, function (err, buf) {
-      t.error(err, 'no error')
-      t.same(buf, Buffer.from('hello world'))
-      server.close()
-      client.close(() => t.end())
-    })
+    read(client, 11, (err, buf) => {
+      expect(err).toBeNull();
+      expect(buf).toEqual(Buffer.from("hello world"));
 
-    client.writev([
-      Buffer.from('hello '),
-      Buffer.from('world')
-    ])
-  })
-})
+      server.close();
+      client.close(() => done());
+    });
 
-tape('writev after connect', function (t) {
-  const server = turbo.createServer(echo, { reusePort: false })
+    client.writev([Buffer.from("hello "), Buffer.from("world")]);
+  });
+});
 
-  server.listen(function () {
-    const client = turbo.connect(server.address().port)
+test("writev after connect", done => {
+  const server = turbo.createServer(echo, { reusePort: false });
 
-    read(client, 11, function (err, buf) {
-      t.error(err, 'no error')
-      t.same(buf, Buffer.from('hello world'))
-      server.close()
-      client.close(() => t.end())
-    })
+  server.listen(() => {
+    const client = turbo.connect(server.address().port);
 
-    client.on('connect', function () {
-      client.writev([
-        Buffer.from('hello '),
-        Buffer.from('world')
-      ])
-    })
-  })
-})
+    read(client, 11, (err, buf) => {
+      expect(err).toBeNull();
+      expect(buf).toEqual(Buffer.from("hello world"));
 
-tape('writev before and after connect', function (t) {
-  const server = turbo.createServer(echo, { reusePort: false })
+      server.close();
+      client.close(() => done());
+    });
 
-  server.listen(function () {
-    const client = turbo.connect(server.address().port)
+    client.on("connect", () => {
+      client.writev([Buffer.from("hello "), Buffer.from("world")]);
+    });
+  });
+});
 
-    read(client, 14 + 11, function (err, buf) {
-      t.error(err, 'no error')
-      console.log(buf.toString())
-      t.same(buf, Buffer.from('hej verden og hello world'))
-      server.close()
-      client.close(() => t.end())
-    })
+test("writev before and after connect", done => {
+  const server = turbo.createServer(echo, { reusePort: false });
+
+  server.listen(() => {
+    const client = turbo.connect(server.address().port);
+
+    read(client, 14 + 11, (err, buf) => {
+      expect(err).toBeNull();
+      expect(buf).toEqual(Buffer.from("hej verden og hello world"));
+
+      server.close();
+      client.close(() => done());
+    });
 
     client.writev([
-      Buffer.from('hej '),
-      Buffer.from('verden '),
-      Buffer.from('og ')
-    ])
+      Buffer.from("hej "),
+      Buffer.from("verden "),
+      Buffer.from("og ")
+    ]);
 
-    client.on('connect', function () {
-      client.writev([
-        Buffer.from('hello '),
-        Buffer.from('world')
-      ])
-    })
-  })
-})
+    client.on("connect", () => {
+      client.writev([Buffer.from("hello "), Buffer.from("world")]);
+    });
+  });
+});
 
-tape('writev twice', function (t) {
-  const server = turbo.createServer(echo, { reusePort: false })
+test("writev twice", done => {
+  const server = turbo.createServer(echo, { reusePort: false });
 
-  server.listen(function () {
-    const client = turbo.connect(server.address().port)
+  server.listen(() => {
+    const client = turbo.connect(server.address().port);
 
-    read(client, 14 + 11, function (err, buf) {
-      t.error(err, 'no error')
-      t.same(buf, Buffer.from('hej verden og hello world'))
-      server.close()
-      client.close(() => t.end())
-    })
+    read(client, 14 + 11, (err, buf) => {
+      expect(err).toBeNull();
+      expect(buf).toEqual(Buffer.from("hej verden og hello world"));
+
+      server.close();
+      client.close(() => done());
+    });
 
     client.writev([
-      Buffer.from('hej '),
-      Buffer.from('verden '),
-      Buffer.from('og ')
-    ])
+      Buffer.from("hej "),
+      Buffer.from("verden "),
+      Buffer.from("og ")
+    ]);
 
-    client.writev([
-      Buffer.from('hello '),
-      Buffer.from('world')
-    ])
-  })
-})
+    client.writev([Buffer.from("hello "), Buffer.from("world")]);
+  });
+});
 
-tape('write 256 buffers', function (t) {
-  const server = turbo.createServer(echo, { reusePort: false })
+test("write 256 buffers", done => {
+  const server = turbo.createServer(echo, { reusePort: false });
 
-  server.listen(function () {
-    const client = turbo.connect(server.address().port)
-    const expected = Buffer.alloc(256)
+  server.listen(() => {
+    const client = turbo.connect(server.address().port);
+    const expected = Buffer.alloc(256);
 
-    read(client, 256, function (err, buf) {
-      t.error(err, 'no error')
-      t.same(buf, expected)
-      server.close()
-      client.close(() => t.end())
-    })
+    read(client, 256, (err, buf) => {
+      expect(err).toBeNull();
+      expect(buf).toEqual(expected);
 
-    for (var i = 0; i < 256; i++) {
-      expected[i] = i
-      client.write(Buffer.from([i]))
+      server.close();
+      client.close(() => done());
+    });
+
+    for (let i = 0; i < 256; i++) {
+      expected[i] = i;
+      client.write(Buffer.from([i]));
     }
-  })
-})
+  });
+});
 
-function read (socket, read, cb) {
-  const buf = Buffer.alloc(read)
-  socket.read(buf, function (err, next, n) {
-    if (err) return cb(err)
-    read -= n
-    if (!read) return cb(null, buf)
-    socket.read(next.slice(n), cb)
-  })
+function read(socket, read, cb) {
+  const buf = Buffer.alloc(read);
+
+  socket.read(buf, (err, next, n) => {
+    if (err) return cb(err);
+
+    read -= n;
+
+    if (!read) return cb(null, buf);
+
+    socket.read(next.slice(n), cb);
+  });
 }
 
-function echo (socket) {
-  socket.read(Buffer.alloc(65536), function onread (err, buf, n) {
-    if (err) return
-    socket.write(buf, n, function (err) {
-      if (err) return
-      socket.read(buf, onread)
-    })
-  })
+function echo(socket) {
+  socket.read(Buffer.alloc(65536), function onRead(err, buf, n) {
+    if (err) return;
+
+    socket.write(buf, n, err => {
+      if (err) return;
+
+      socket.read(buf, onRead);
+    });
+  });
 }

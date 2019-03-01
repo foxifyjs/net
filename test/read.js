@@ -1,50 +1,62 @@
-const tape = require('tape')
-const turbo = require('../')
+const turbo = require("..");
 
-tape('read', function (t) {
-  const server = turbo.createServer(function (socket) {
-    socket.write(Buffer.from('hello world'))
-    socket.end()
-  })
+test("read", done => {
+  const server = turbo.createServer(socket => {
+    socket.write(Buffer.from("hello world"));
 
-  server.listen(function () {
-    const socket = turbo.connect(server.address().port)
+    socket.end();
+  });
 
-    socket.on('connect', function () {
-      socket.read(Buffer.alloc(1024), function (err, buf, n) {
-        t.error(err, 'no error')
-        t.ok(n > 0)
-        t.same(buf.slice(0, n), Buffer.from('hello world').slice(0, n))
-        socket.close()
-        server.close()
-        t.end()
-      })
-    })
-  })
-})
+  server.listen(() => {
+    const socket = turbo.connect(server.address().port);
 
-tape('many reads', function (t) {
-  const expected = Buffer.from('hello world hello world hello world')
-  const server = turbo.createServer(function (socket) {
-    socket.write(expected)
-    socket.end()
-  })
+    socket.on("connect", () => {
+      socket.read(Buffer.alloc(1024), (err, buf, n) => {
+        expect(err).toBeNull();
 
-  t.plan(2 * expected.length + 2)
+        expect(n > 0).toBe(true);
+        expect(buf.slice(0, n)).toEqual(Buffer.from("hello world").slice(0, n));
 
-  server.listen(function () {
-    const socket = turbo.connect(server.address().port)
-    for (var i = 0; i < expected.length; i++) {
-      const next = expected[i]
-      socket.read(Buffer.alloc(1), function (err, buf) {
-        t.error(err)
-        t.same(buf, Buffer.from([next]))
-      })
+        socket.close();
+        server.close();
+
+        done();
+      });
+    });
+  });
+});
+
+test("many reads", done => {
+  const expected = Buffer.from("hello world hello world hello world");
+
+  expect.assertions(2 * expected.length + 2);
+
+  const server = turbo.createServer(socket => {
+    socket.write(expected);
+    socket.end();
+  });
+
+  server.listen(() => {
+    const socket = turbo.connect(server.address().port);
+
+    for (let i = 0; i < expected.length; i++) {
+      const next = expected[i];
+
+      socket.read(Buffer.alloc(1), (err, buf) => {
+        expect(err).toBeNull();
+
+        expect(buf).toEqual(Buffer.from([next]));
+      });
     }
-    socket.read(Buffer.alloc(1024), function (err, buf, n) {
-      server.close()
-      t.error(err)
-      t.same(n, 0)
-    })
-  })
-})
+
+    socket.read(Buffer.alloc(1024), (err, buf, n) => {
+      server.close();
+
+      expect(err).toBeNull();
+
+      expect(n).toBe(0);
+
+      done();
+    });
+  });
+});
