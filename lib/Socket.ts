@@ -1,11 +1,22 @@
 import { EventEmitter } from "events";
 
+const HANDLE = Symbol("handle");
+
 namespace Socket {
   export interface Options {
-    fd?: number;
     allowHalfOpen?: boolean;
     readable?: boolean;
     writable?: boolean;
+  }
+
+  export interface ConnectOptions {
+    port: number;
+    host?: string;
+    localAddress?: string;
+    localPort?: number;
+    family?: 4 | 6;
+    hints?: number;
+    lookup?: Function;
   }
 
   export type Event =
@@ -88,14 +99,7 @@ interface Socket extends EventEmitter {
     family: string | null,
     host: string,
   ): boolean;
-  emit(
-    event:
-      | "connect"
-      | "drain"
-      | "end"
-      | "ready"
-      | "timeout",
-  ): boolean;
+  emit(event: "connect" | "drain" | "end" | "ready" | "timeout"): boolean;
 
   eventNames(): Array<Socket.Event>;
 
@@ -103,17 +107,30 @@ interface Socket extends EventEmitter {
 }
 
 class Socket extends EventEmitter {
+  public connecting = false;
+
+  public destroyed = false;
+
   public allowHalfOpen: boolean;
+
   public readable: boolean;
+
   public writable: boolean;
 
-  constructor(options: Socket.Options | number = {}) {
+  public localAddress?: string;
+
+  public localPort?: number;
+
+  public remoteAddress?: string;
+
+  public remoteFamily?: "IPv4" | "IPv6";
+
+  public remotePort?: number;
+
+  constructor(options: Socket.Options = {}) {
     super();
 
-    if (typeof options === "number") options = { fd: options };
-
     const {
-      fd,
       allowHalfOpen = false,
       readable = false,
       writable = false,
@@ -123,6 +140,75 @@ class Socket extends EventEmitter {
     this.readable = readable;
     this.writable = writable;
   }
+
+  public address() {}
+
+  public connect(
+    options: Socket.ConnectOptions,
+    connectListener?: () => void,
+  ): this;
+  public connect(
+    port: number,
+    host?: string,
+    connectListener?: () => void,
+  ): this;
+  public connect(
+    port: number | Socket.ConnectOptions,
+    host?: string | (() => void),
+    connectListener?: () => void,
+  ) {
+    return this;
+  }
+
+  public destroy(exception?: Error) {
+    return this;
+  }
+
+  public end(
+    data?: string | Buffer | Uint8Array,
+    encoding = "utf8",
+    callback = () => {},
+  ) {
+    return this;
+  }
+
+  pause() {
+    return this;
+  }
+
+  ref() {
+    return this;
+  }
+
+  resume() {
+    return this;
+  }
+
+  setEncoding(encoding?: string) {
+    return this;
+  }
+
+  setKeepAlive(enable = false, initialDelay = 0) {
+    return this;
+  }
+
+  setNoDelay(noDelay = true) {
+    return this;
+  }
+
+  setTimeout(timeout: number, callback?: () => void) {
+    return this;
+  }
+
+  unref() {
+    return this;
+  }
+
+  write(
+    data?: string | Buffer | Uint8Array,
+    encoding = "utf8",
+    callback = () => {},
+  ) {}
 }
 
 export default Socket;

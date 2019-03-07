@@ -1,5 +1,5 @@
-const Server = require("./lib/server");
-const Connection = require("./lib/connection");
+const Server = require("./server");
+const Connection = require("./connection");
 
 exports.Server = Server;
 
