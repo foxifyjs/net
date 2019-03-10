@@ -2,12 +2,34 @@
   "defaultSeverity": "error",
   "extends": [
     "tslint:recommended",
-    "tslint-config-aitrbnb",
+    "tslint-config-airbnb",
     "tslint-config-prettier"
   ],
   "jsRules": {},
-  "rules": {},
-  "rulesDirectory": [
-    "lib"
-  ]
+  "rules": {
+    "no-namespace": false,
+    "no-increment-decrement": false,
+    "no-parameter-reassignment": false,
+    "prefer-array-literal": false,
+    "prefer-for-of": false,
+    "interface-name": false,
+    "variable-name": [
+      true,
+      "ban-keywords",
+      "check-format",
+      "allow-leading-underscore"
+    ],
+    "function-name": [
+      true,
+      {
+        "method-regex": "^\\*?\\[?[a-zA-Z][\\w\\d\\.]*\\]?$",
+        "private-method-regex": "^\\*?\\[?[a-zA-Z][\\w\\d\\.]*\\]?$",
+        "protected-method-regex": "^\\*?\\[?[a-zA-Z][\\w\\d\\.]*\\]?$",
+        "static-method-regex": "^\\*?\\[?[a-zA-Z][\\w\\d\\.]*\\]?$",
+        "function-regex": "^\\*?\\[?[a-zA-Z][\\w\\d\\.]*\\]?$"
+      }
+    ],
+    "ban-types": [true, ["Object"], ["String"], ["Number"], ["Boolean"]]
+  },
+  "rulesDirectory": ["lib"]
 }

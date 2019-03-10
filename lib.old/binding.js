@@ -1,7 +1,7 @@
 const path = require("path");
 const binding = require("node-gyp-build")(path.join(__dirname, ".."));
 
-binding.turbo_net_on_fatal_exception(onFatalException);
+binding.socket_on_fatal_exception(onFatalException);
 
 module.exports = binding;
 

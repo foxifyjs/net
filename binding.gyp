@@ -1,11 +1,11 @@
 {
   "targets": [{
-    "target_name": "turbo_net",
+    "target_name": "socket",
     "include_dirs": [
       "<!(node -e \"require('napi-macros')\")"
     ],
     "sources": [
-      "./src/turbo_net.c"
+      "./src/socket.c"
     ],
     "xcode_settings": {
       "OTHER_CFLAGS": [
