@@ -7,9 +7,6 @@ import * as unorderedSet from "unordered-set";
 import { binding } from "./internals";
 import Socket from "./Socket";
 
-const ON_CLOSE = Symbol("on-close");
-const ON_ALLOC_CONNECTION = Symbol("on-alloc-connection");
-
 namespace Server {
   export interface Options {
     allowHalfOpen?: boolean;
@@ -79,7 +76,7 @@ interface Server extends EventEmitter {
   emit(event: "error", error: Error): boolean;
   emit(event: "close" | "listening"): boolean;
 
-  eventNames(): Array<Server.Event>;
+  eventNames(): Server.Event[];
 
   listenerCount(type: Server.Event): number;
 }
@@ -95,7 +92,7 @@ class Server extends EventEmitter {
 
   protected _handle?: Buffer;
 
-  protected _connections = [];
+  protected _connections: Socket[] = [];
 
   protected _reusePort = 0;
 
@@ -106,6 +103,11 @@ class Server extends EventEmitter {
     connectionListener?: Server.EventListener<"connection">,
   ) {
     super();
+
+    if (typeof options === "function") {
+      connectionListener = options;
+      options = {};
+    }
 
     const { allowHalfOpen = false, pauseOnConnect = false } = options;
 
@@ -143,7 +145,7 @@ class Server extends EventEmitter {
 
     if (!this._handle) return this;
 
-    binding.turbo_net_tcp_close(this._handle);
+    binding.socket_tcp_close(this._handle);
 
     return this;
   }
@@ -196,23 +198,23 @@ class Server extends EventEmitter {
       if (this.listening) this.emit("error", new Error("Already bound"));
 
       if (!this._handle) {
-        this._handle = Buffer.alloc(binding.sizeof_turbo_net_tcp_t);
+        this._handle = Buffer.alloc(binding.sizeof_socket_tcp_t);
 
-        binding.turbo_net_tcp_init(
+        binding.socket_tcp_init(
           this._handle,
           this,
-          this[ON_ALLOC_CONNECTION],
+          this._onAllocConnection,
           null,
           null,
           null,
           null,
-          this[ON_CLOSE],
+          this._onClose,
           this._reusePort || exclusive,
         );
       }
 
       try {
-        binding.turbo_net_tcp_listen(this._handle, port, ip, backlog);
+        binding.socket_tcp_listen(this._handle, port, ip, backlog);
       } catch (err) {
         return this.emit("error", err);
       }
@@ -237,25 +239,23 @@ class Server extends EventEmitter {
     return this;
   }
 
-  private [ON_CLOSE]() {
+  private _onClose() {
     this.listening = false;
     this._socketName = undefined;
 
-    binding.turbo_net_tcp_destroy(this._handle);
+    binding.socket_tcp_destroy(this._handle);
 
     this._handle = undefined;
 
     this.emit("close");
   }
 
-  private [ON_ALLOC_CONNECTION]() {
+  private _onAllocConnection() {
     const socket = new Socket({
       allowHalfOpen: this.allowHalfOpen,
-      readable: true,
-      writable: true,
     });
 
-    (socket as any)._unQueue();
+    (socket as any)._queue = undefined;
 
     unorderedSet.add(this._connections, socket);
 

@@ -1,5 +1,5 @@
 const path = require("path");
-const binding = require("node-gyp-build")(path.join(__dirname, ".."));
+const binding = require("bindings")("socket");
 
 binding.socket_on_fatal_exception(onFatalException);
 

@@ -6,9 +6,9 @@ const server = net.createServer(function (socket) {
 })
 
 server.listen(8080, function () {
-  const speed = speedometer()
   const socket = net.connect(8080)
   const range = Array(8).join(',').split(',')
+  const speed = speedometer()
 
   socket.on('data', function (data) {
     speed(data.length)

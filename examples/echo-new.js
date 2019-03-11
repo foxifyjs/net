@@ -1,4 +1,4 @@
-const turbo = require('../lib.old')
+const turbo = require('..')
 const speedometer = require('speedometer')
 
 const server = turbo.createServer()
@@ -9,25 +9,24 @@ server.on('connection', function (c) {
 
 server.listen(8080, function () {
   const c = turbo.connect(8080, 'localhost')
-  const buffer = Buffer.alloc(1024 * 1024)
+  const range = Array(8).join(',').split(',')
   const speed = speedometer()
 
-  c.read(buffer, function onread (err, buf, len) {
-    if (err) throw err
-    speed(len)
-    c.read(buffer, onread)
+  c.read(1024 * 1024, function onread(err, buf, len) {
+    if (err) throw err;
+    speed(len);
+    c.read(1024 * 1024, onread);
+  });
+
+  range.forEach(function () {
+    const buf = Buffer.alloc(1024 * 1024)
+    c.write(buf, undefined, function onwrite(err) {
+      if (err) throw err;
+      c.write(buf, undefined, onwrite);
+    });
   })
 
-  for (var i = 0; i < 8; i++) {
-    c.write(Buffer.alloc(1024 * 1024), 1024 * 1024, onwrite)
-  }
-
   setInterval(() => console.log(speed()), 1000)
-
-  function onwrite (err, buf) {
-    if (err) throw err
-    c.write(buf, buf.length, onwrite)
-  }
 })
 
 function pipe (a, b) {
@@ -36,7 +35,7 @@ function pipe (a, b) {
   let full = 4
 
   for (var i = 0; i < 4; i++) {
-    a.read(Buffer.allocUnsafe(bufferSize), onread)
+    a.read(bufferSize, onread);
   }
 
   function onread (_, buf, n) {
@@ -52,12 +51,12 @@ function pipe (a, b) {
       full = 4
     }
 
-    b.write(buf, n, onwrite)
+    b.write(buf, undefined, onwrite)
   }
 
   function onwrite (err, buf, n) {
     if (err) return
-    if (buf.length < bufferSize) buf = Buffer.allocUnsafe(bufferSize)
-    a.read(buf, onread)
+    if (n < bufferSize) n = bufferSize
+    a.read(n, onread)
   }
 }

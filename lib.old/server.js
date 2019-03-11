@@ -31,7 +31,7 @@ class Server extends events.EventEmitter {
     return {
       address: this._address,
       family: "IPv4",
-      port: binding.turbo_net_tcp_port(this._handle)
+      port: binding.socket_tcp_port(this._handle)
     };
   }
 
@@ -40,7 +40,7 @@ class Server extends events.EventEmitter {
     if (onclose) this.once("close", onclose);
     if (this._closed) return;
     this._closed = true;
-    binding.turbo_net_tcp_close(this._handle);
+    binding.socket_tcp_close(this._handle);
   }
 
   listen(port, address, backlog, onlistening) {
@@ -62,7 +62,7 @@ class Server extends events.EventEmitter {
       self._init();
 
       try {
-        binding.turbo_net_tcp_listen(self._handle, port, ip, backlog);
+        binding.socket_tcp_listen(self._handle, port, ip, backlog);
       } catch (err) {
         self.emit("error", err);
       }
@@ -75,9 +75,9 @@ class Server extends events.EventEmitter {
   _init() {
     if (this._handle) return;
 
-    this._handle = Buffer.alloc(binding.sizeof_turbo_net_tcp_t);
+    this._handle = Buffer.alloc(binding.sizeof_socket_tcp_t);
 
-    binding.turbo_net_tcp_init(
+    binding.socket_tcp_init(
       this._handle,
       this,
       this._onallocconnection,
@@ -93,7 +93,7 @@ class Server extends events.EventEmitter {
   _onclose() {
     this._closed = false;
     this._address = null;
-    binding.turbo_net_tcp_destroy(this._handle);
+    binding.socket_tcp_destroy(this._handle);
     this._handle = null;
     this.emit("close");
   }

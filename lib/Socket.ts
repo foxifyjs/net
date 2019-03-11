@@ -3,21 +3,12 @@ import { EventEmitter } from "events";
 import { Readable } from "stream";
 import { binding, Queue, Request } from "./internals";
 
-const ON_CONNECT = Symbol("on-connect");
-const ON_WRITE = Symbol("on-write");
-const ON_READ = Symbol("on-read");
-const ON_FINISH = Symbol("on-finish");
-const ON_CLOSE = Symbol("on-close");
-const ON_END = Symbol("on-end");
-const NOT_READABLE = Symbol("not-readable");
-const NOT_WRITABLE = Symbol("not-writable");
-
 const EMPTY = Buffer.alloc(0);
 
 // tslint:disable-next-line:no-empty
 function noop() {}
 
-function writeDone(req: Request, err: Error | null) {
+function writeDone(req: Request, err: Error | null = null) {
   if (req.buffers) {
     req.donev(err);
   } else {
@@ -25,7 +16,10 @@ function writeDone(req: Request, err: Error | null) {
   }
 }
 
-function callAll(list: Array<(err: Error) => void>, err: Error) {
+function callAll(
+  list: Array<(err: Error | null) => void>,
+  err: Error | null = null,
+) {
   for (let i = 0; i < list.length; i++) {
     list[i](err);
   }
@@ -36,8 +30,6 @@ function callAll(list: Array<(err: Error) => void>, err: Error) {
 namespace Socket {
   export interface Options {
     allowHalfOpen?: boolean;
-    readable?: boolean;
-    writable?: boolean;
   }
 
   export type Family = "IPv4" | "IPv6";
@@ -164,8 +156,8 @@ interface Socket extends EventEmitter {
 class Socket extends EventEmitter {
   public readonly allowHalfOpen: boolean;
 
-  public readonly readable: boolean;
-  public readonly writable: boolean;
+  public readable = false;
+  public writable = false;
 
   public connecting = false;
 
@@ -211,25 +203,19 @@ class Socket extends EventEmitter {
   constructor(options: Socket.Options = {}) {
     super();
 
-    const {
-      allowHalfOpen = false,
-      readable = false,
-      writable = false,
-    } = options;
+    const { allowHalfOpen = false } = options;
 
     this.allowHalfOpen = allowHalfOpen;
-    this.readable = readable;
-    this.writable = writable;
 
     binding.socket_tcp_init(
       this._handle,
       this,
       null,
-      this[ON_CONNECT],
-      this[ON_WRITE],
-      this[ON_READ],
-      this[ON_FINISH],
-      this[ON_CLOSE],
+      this._onConnect,
+      this._onWrite,
+      this._onRead,
+      this._onFinish,
+      this._onClose,
       0,
     );
   }
@@ -306,7 +292,7 @@ class Socket extends EventEmitter {
     if (this.destroyed) return this;
 
     if (this._queue) {
-      this._queue.push([4, null, 0, noop]);
+      this._queue.push([4, null, noop]);
 
       return;
     }
@@ -315,8 +301,9 @@ class Socket extends EventEmitter {
 
     this._destroying = true;
 
-    // this.readable = this.writable = false;
-    binding.turbo_net_tcp_close(this._handle);
+    this.readable = this.writable = false;
+
+    binding.socket_tcp_close(this._handle);
 
     return this;
   }
@@ -404,13 +391,13 @@ class Socket extends EventEmitter {
 
   public read(
     n: number,
-    cb: (err: Error | null, buffer: Buffer, bytesRead: number) => void,
+    cb: (err: Error | null, buffer: Buffer, bytesRead: number) => void = noop,
   ) {
-    const data = Buffer.allocUnsafe(n);
-
-    if (!this.readable) return this[NOT_READABLE](cb, data);
+    if (!this.readable) return this._notReadable(cb, n);
 
     const reading = this._reads.push();
+
+    const data = Buffer.allocUnsafe(n);
 
     reading.buffer = data;
     reading.callback = cb;
@@ -432,16 +419,18 @@ class Socket extends EventEmitter {
     ) => void = noop,
   ) {
     if (typeof data === "string") {
-      data = new Buffer(data, encoding);
-    } else if (data instanceof Uint8Array) {
-      data = new Buffer(data);
+      data = Buffer.from(data, encoding);
     }
 
-    const length = data.length;
+    if (!this.writable) {
+      this._notWritable(callback, data);
 
-    if (!this.writable) return this[NOT_WRITABLE](callback, data, length);
+      return false;
+    }
 
     const writing = this._writes.push();
+
+    const length = data.length;
 
     writing.buffer = data as Buffer;
     writing.length = length;
@@ -457,8 +446,56 @@ class Socket extends EventEmitter {
     return true;
   }
 
+  public writev(
+    datas: Array<string | Buffer | Uint8Array>,
+    encoding = "utf8",
+    callback: (
+      err: Error | null,
+      buffer: Buffer,
+      length: number,
+    ) => void = noop,
+  ) {
+    datas = datas.map(data => {
+      if (typeof data === "string") {
+        return Buffer.from(data, encoding);
+      }
+
+      return data;
+    });
+
+    if (!this.writable) {
+      this._notWritable(callback, datas);
+
+      return false;
+    }
+
+    const writing = this._writes.push();
+
+    const lengths = datas.map(data => data.length);
+
+    writing.buffers = datas as Buffer[];
+    writing.lengths = lengths;
+    writing.callback = callback;
+
+    if (datas.length === 2) {
+      // faster c case for just two buffers which is common
+      binding.socket_tcp_write_two(
+        this._handle,
+        writing.handle,
+        datas[0],
+        lengths[0],
+        datas[1],
+        lengths[1],
+      );
+    } else {
+      binding.socket_tcp_writev(this._handle, writing.handle, datas, lengths);
+    }
+
+    return true;
+  }
+
   protected _end(cb = noop) {
-    if (!this.writable) return this[NOT_WRITABLE](cb);
+    if (!this.writable) return this._notWritable(cb);
 
     this.once("end", cb);
 
@@ -466,9 +503,9 @@ class Socket extends EventEmitter {
 
     this._ending = true;
 
-    // this.writable = false;
+    this.writable = false;
 
-    binding.turbo_net_tcp_shutdown(this._handle);
+    binding.socket_tcp_shutdown(this._handle);
   }
 
   protected _unQueue() {
@@ -479,14 +516,14 @@ class Socket extends EventEmitter {
     this._queue = undefined;
 
     while (queue.length) {
-      const [cmd, data, len, cb] = queue.shift();
+      const [cmd, data, cb] = queue.shift();
 
       switch (cmd) {
         case 0:
-          this.write(data, len, cb);
+          this.write(data, undefined, cb);
           break;
         case 1:
-          this.writev(data, len, cb);
+          this.writev(data, undefined, cb);
           break;
         case 2:
           this._end(cb);
@@ -495,50 +532,50 @@ class Socket extends EventEmitter {
           this.read(data, cb);
           break;
         case 4:
-          this.once("close", cb).destroy(cb);
+          this.once("close", cb).destroy();
           break;
       }
     }
   }
 
-  private [ON_CONNECT](status: number) {
+  private _onConnect(status: number) {
     if (status < 0) {
       this._unQueue();
 
-      this.emit("error", new Error("Connect failed"));
-
-      return;
+      return this.emit("error", new Error("Connect failed"));
     }
 
-    // this.readable = true;
-    // this.writable = true;
+    this.readable = true;
+    this.writable = true;
+
     this._unQueue();
 
     this.emit("connect");
   }
 
-  private [ON_WRITE](status: number) {
+  private _onWrite(status: number) {
     const writing = this._writes.shift();
 
     const err = status < 0 ? new Error("Write failed") : null;
 
     if (err) {
-      this.close();
+      this.destroy(err);
 
       writeDone(writing, err);
 
       return;
     }
 
-    writeDone(writing, null);
+    writeDone(writing);
   }
 
-  private [ON_READ](read: number) {
+  private _onRead(read: number) {
     if (!read) {
-      // this.readable = false;
+      this.readable = false;
+
       this.ended = true;
 
-      this[ON_END]();
+      this._onEnd();
 
       return EMPTY;
     }
@@ -547,8 +584,10 @@ class Socket extends EventEmitter {
     const err = read < 0 ? new Error("Read failed") : null;
 
     if (err) {
-      this.close();
+      this.destroy(err);
+
       reading.done(err, 0);
+
       return EMPTY;
     }
 
@@ -556,42 +595,40 @@ class Socket extends EventEmitter {
 
     if (this._reads.top === this._reads.bottom) {
       this._paused = true;
+
       return EMPTY;
     }
 
     return this._reads.peek().buffer;
   }
 
-  private [ON_FINISH](status: number) {
+  private _onFinish(status: number) {
     this.finished = true;
     if (this.ended || !this.allowHalfOpen) this.destroy();
     this.emit("finish");
 
     const err = status < 0 ? new Error("End failed") : null;
 
-    if (err) this.close();
-
-    this._finishing = callAll(this._finishing, err);
+    if (err) this.destroy(err);
   }
 
-  private [ON_CLOSE]() {
+  private _onClose() {
     if (this._timeout) clearTimeout(this._timeout);
 
-    this.closed = true;
-    this._closing = callAll(this._closing, null);
+    this.destroyed = true;
 
     if (this._reads.top !== this._reads.bottom) {
-      this[ON_END](new Error("Closed"));
+      this._onEnd(new Error("Closed"));
     }
 
     binding.socket_tcp_destroy(this._handle);
 
-    this._handle = null;
+    this._handle = null as any;
 
     this.emit("close");
   }
 
-  private [ON_END](err: Error | null = null) {
+  private _onEnd(err: Error | null = null) {
     while (this._reads.top !== this._reads.bottom) {
       this._reads.shift().done(err, 0);
     }
@@ -603,9 +640,9 @@ class Socket extends EventEmitter {
     this.emit("end");
   }
 
-  private [NOT_READABLE](cb, data) {
+  private _notReadable(cb: Function, data: any) {
     if (this._queue) {
-      this._queue.push([3, data, 0, cb]);
+      this._queue.push([3, data, cb]);
 
       return;
     }
@@ -618,11 +655,11 @@ class Socket extends EventEmitter {
     );
   }
 
-  private [NOT_WRITABLE](cb: Function, data?: any, len?: number) {
+  private _notWritable(cb: Function, data?: any) {
     if (this._queue) {
       const type = data ? (Array.isArray(data) ? 1 : 0) : 2;
 
-      this._queue.push([type, data, len || 0, cb]);
+      this._queue.push([type, data, cb]);
 
       return;
     }

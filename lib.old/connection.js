@@ -22,7 +22,7 @@ class Connection extends events.EventEmitter {
 
     this._index = 0; // used be unordered set
     this._server = null;
-    this._handle = Buffer.alloc(binding.sizeof_turbo_net_tcp_t);
+    this._handle = Buffer.alloc(binding.sizeof_socket_tcp_t);
     this._reads = new RequestQueue(8, 0);
     this._writes = new RequestQueue(16, binding.sizeof_uv_write_t);
     this._timeoutId = false;
@@ -32,7 +32,7 @@ class Connection extends events.EventEmitter {
     this._paused = true;
     this._queued = server ? null : [];
 
-    binding.turbo_net_tcp_init(
+    binding.socket_tcp_init(
       this._handle,
       this,
       null,
@@ -58,7 +58,7 @@ class Connection extends events.EventEmitter {
 
     lookup(host, function(err, ip) {
       if (err) return self.emit("error", err);
-      binding.turbo_net_tcp_connect(self._handle, port, ip);
+      binding.socket_tcp_connect(self._handle, port, ip);
     });
   }
 
@@ -70,7 +70,7 @@ class Connection extends events.EventEmitter {
     this._closing = callAll(this._closing, null);
     if (this._reads.top !== this._reads.btm) this._onend(new Error("Closed"));
 
-    binding.turbo_net_tcp_destroy(this._handle);
+    binding.socket_tcp_destroy(this._handle);
     this._handle = this._server = null;
 
     this.emit("close");
@@ -101,9 +101,10 @@ class Connection extends events.EventEmitter {
       return;
     }
 
-    this.remoteFamily = "IPv4";
-    this.remoteAddress = binding.turbo_net_tcp_remote_address(this._handle);
-    this.remotePort = binding.turbo_net_tcp_remote_port(this._handle);
+    const peerName = binding.socket_tcp_peername(this._handle);
+    this.remoteFamily = peerName.family;
+    this.remoteAddress = peerName.address;
+    this.remotePort = peerName.port;
 
     this.readable = true;
     this.writable = true;
@@ -201,7 +202,7 @@ class Connection extends events.EventEmitter {
 
     if (datas.length === 2) {
       // faster c case for just two buffers which is common
-      binding.turbo_net_tcp_write_two(
+      binding.socket_tcp_write_two(
         this._handle,
         writing.handle,
         datas[0],
@@ -210,7 +211,7 @@ class Connection extends events.EventEmitter {
         lens[1]
       );
     } else {
-      binding.turbo_net_tcp_writev(this._handle, writing.handle, datas, lens);
+      binding.socket_tcp_writev(this._handle, writing.handle, datas, lens);
     }
   }
 
@@ -222,7 +223,7 @@ class Connection extends events.EventEmitter {
     writing.length = len;
     writing.callback = cb;
 
-    binding.turbo_net_tcp_write(
+    binding.socket_tcp_write(
       this._handle,
       writing.handle,
       writing.buffer,
@@ -252,7 +253,7 @@ class Connection extends events.EventEmitter {
     if (this._closing.length > 1) return;
 
     this.readable = this.writable = false;
-    binding.turbo_net_tcp_close(this._handle);
+    binding.socket_tcp_close(this._handle);
   }
 
   end(cb) {
@@ -263,7 +264,7 @@ class Connection extends events.EventEmitter {
     if (this._finishing.length > 1) return;
 
     this.writable = false;
-    binding.turbo_net_tcp_shutdown(this._handle);
+    binding.socket_tcp_shutdown(this._handle);
   }
 
   read(data, cb) {
@@ -276,7 +277,7 @@ class Connection extends events.EventEmitter {
 
     if (this._paused) {
       this._paused = false;
-      binding.turbo_net_tcp_read(this._handle, data);
+      binding.socket_tcp_read(this._handle, data);
     }
   }
 
