@@ -171,7 +171,7 @@ class Server extends EventEmitter {
   ) {
     let exclusive = 0;
 
-    if (port) {
+    if (port !== undefined) {
       if (typeof port === "object") {
         exclusive = Number(port.exclusive);
         backlog = port.backlog;

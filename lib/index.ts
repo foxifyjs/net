@@ -4,8 +4,6 @@ import Socket from "./Socket";
 
 export { Server, Socket };
 
-export function createConnection() {}
-
 export function createServer(
   options: Server.Options,
   connectionListener?: Server.EventListener<"connection">,
@@ -24,3 +22,5 @@ export function connect(
 
   return new Socket().connect(port, host as any, connectListener);
 }
+
+export const createConnection = connect;

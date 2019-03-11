@@ -1,6 +1,6 @@
 import * as dns from "dns";
 import { EventEmitter } from "events";
-import { Readable } from "stream";
+import { Readable, Writable } from "stream";
 import { binding, Queue, Request } from "./internals";
 
 const EMPTY = Buffer.alloc(0);
@@ -387,6 +387,46 @@ class Socket extends EventEmitter {
     }
 
     return this;
+  }
+
+  public pipe(destination: Writable | Socket, options: { end?: boolean } = {}) {
+    const { end = false } = options;
+
+    if (end) this.once("end", () => destination.end());
+
+    let bufferSize = 16 * 1024;
+    let max = 8; // up to 8mb
+    let full = 4;
+
+    for (let i = 0; i < 4; i++) {
+      this.read(bufferSize, onRead);
+    }
+
+    function onRead(_: any, buf: Buffer, n: number) {
+      if (!n) return;
+
+      if (n === buf.length) {
+        if (!--full && max) {
+          full = 4;
+          bufferSize *= 2;
+          max--;
+        }
+      } else {
+        full = 4;
+      }
+
+      destination.write(buf, undefined, onWrite);
+    }
+
+    // tslint:disable-next-line:no-this-assignment
+    const self = this;
+    function onWrite(err: Error | null, buf: Buffer, n: number) {
+      if (err) return;
+      if (n < bufferSize) n = bufferSize;
+      self.read(n, onRead);
+    }
+
+    return destination;
   }
 
   public read(

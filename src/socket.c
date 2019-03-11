@@ -246,20 +246,6 @@ NAPI_METHOD(socket_tcp_read)
   return NULL;
 }
 
-NAPI_METHOD(socket_tcp_pipe)
-{
-  NAPI_ARGV(2)
-  NAPI_ARGV_BUFFER_CAST(socket_tcp_t *, self, 0)
-  NAPI_ARGV_BUFFER(buffer, 1)
-
-  int err;
-  self->reading = (uv_buf_t){.base = buffer, .len = buffer_len};
-
-  NAPI_UV_THROWS(err, uv_read_start(SOCKET_STREAM, on_uv_alloc, on_uv_read))
-
-  return NULL;
-}
-
 NAPI_METHOD(socket_tcp_write)
 {
   NAPI_ARGV(4)
