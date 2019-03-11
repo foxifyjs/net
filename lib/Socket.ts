@@ -1,8 +1,7 @@
 import * as dns from "dns";
 import { EventEmitter } from "events";
 import { Readable } from "stream";
-import binding from "./binding";
-import Request from "./internals/Request";
+import { binding, Queue, Request } from "./internals";
 
 const ON_CONNECT = Symbol("on-connect");
 const ON_WRITE = Symbol("on-write");
@@ -163,33 +162,51 @@ interface Socket extends EventEmitter {
 }
 
 class Socket extends EventEmitter {
-  public connecting = false;
-
-  public destroyed = false;
-
   public readonly allowHalfOpen: boolean;
 
   public readonly readable: boolean;
-
   public readonly writable: boolean;
 
-  public localAddress?: string;
+  public connecting = false;
 
+  public destroyed = false;
+  public ended = false;
+  public finished = false;
+
+  public localAddress?: string;
   public localPort?: number;
 
-  public remoteAddress?: string;
+  protected _handle = Buffer.alloc(binding.sizeof_socket_tcp_t);
 
-  public remoteFamily?: Socket.Family;
+  protected _reads = new Queue(8, 0);
+  protected _writes = new Queue(16, binding.sizeof_uv_write_t);
 
-  public remotePort?: number;
+  protected _destroying = false;
+  protected _ending = false;
+  protected _finishing = [];
+  protected _closing = [];
+  protected _queue?: any[] = [];
 
-  private _handle = Buffer.alloc(binding.sizeof_socket_tcp_t);
+  protected _paused = true;
 
-  private _timeout?: NodeJS.Timeout;
+  protected _timeout?: NodeJS.Timeout;
 
-  private _encoding?: string;
+  protected _encoding?: string;
 
-  private _socketName?: Socket.Address;
+  protected _socketName?: Socket.Address;
+  protected _peerName?: Socket.Address;
+
+  public get remoteAddress() {
+    return this.remote().address;
+  }
+
+  public get remoteFamily() {
+    return this.remote().family;
+  }
+
+  public get remotePort() {
+    return this.remote().port || 0;
+  }
 
   constructor(options: Socket.Options = {}) {
     super();
@@ -219,14 +236,18 @@ class Socket extends EventEmitter {
 
   public address() {
     if (!this._socketName) {
-      // const out = {} as any;
-
       this._socketName = binding.socket_tcp_socketname(this._handle);
-
-      // this._socketName = out;
     }
 
     return this._socketName as Socket.Address;
+  }
+
+  public remote() {
+    if (!this._peerName) {
+      this._peerName = binding.socket_tcp_peername(this._handle);
+    }
+
+    return this._peerName as Partial<Socket.Address>;
   }
 
   public connect(
@@ -282,6 +303,21 @@ class Socket extends EventEmitter {
   }
 
   public destroy(exception?: Error) {
+    if (this.destroyed) return this;
+
+    if (this._queue) {
+      this._queue.push([4, null, 0, noop]);
+
+      return;
+    }
+
+    if (this._destroying) return this;
+
+    this._destroying = true;
+
+    // this.readable = this.writable = false;
+    binding.turbo_net_tcp_close(this._handle);
+
     return this;
   }
 
@@ -290,6 +326,19 @@ class Socket extends EventEmitter {
     encoding = "utf8",
     callback = noop,
   ) {
+    if (typeof data === "function") {
+      callback = data;
+      data = undefined;
+    }
+
+    if (!data) {
+      this._end(callback);
+
+      return this;
+    }
+
+    this.write(data, encoding, () => this._end(callback));
+
     return this;
   }
 
@@ -394,7 +443,7 @@ class Socket extends EventEmitter {
 
     const writing = this._writes.push();
 
-    writing.buffer = data;
+    writing.buffer = data as Buffer;
     writing.length = length;
     writing.callback = callback;
 
@@ -404,25 +453,68 @@ class Socket extends EventEmitter {
       writing.buffer,
       length,
     );
+
+    return true;
+  }
+
+  protected _end(cb = noop) {
+    if (!this.writable) return this[NOT_WRITABLE](cb);
+
+    this.once("end", cb);
+
+    if (this._ending) return;
+
+    this._ending = true;
+
+    // this.writable = false;
+
+    binding.turbo_net_tcp_shutdown(this._handle);
+  }
+
+  protected _unQueue() {
+    if (!this._queue) return;
+
+    const queue = this._queue;
+
+    this._queue = undefined;
+
+    while (queue.length) {
+      const [cmd, data, len, cb] = queue.shift();
+
+      switch (cmd) {
+        case 0:
+          this.write(data, len, cb);
+          break;
+        case 1:
+          this.writev(data, len, cb);
+          break;
+        case 2:
+          this._end(cb);
+          break;
+        case 3:
+          this.read(data, cb);
+          break;
+        case 4:
+          this.once("close", cb).destroy(cb);
+          break;
+      }
+    }
   }
 
   private [ON_CONNECT](status: number) {
     if (status < 0) {
-      if (this._queued) this._unqueue();
+      this._unQueue();
+
       this.emit("error", new Error("Connect failed"));
+
       return;
     }
 
-    this.remoteFamily = "IPv4";
-    this.remoteAddress = binding.socket_tcp_remote_address(this._handle);
-    this.remotePort = binding.socket_tcp_remote_port(this._handle);
+    // this.readable = true;
+    // this.writable = true;
+    this._unQueue();
 
-    this.readable = true;
-    this.writable = true;
-    if (this._queued) this._unqueue();
-
-    if (this._server) this._server.emit("connection", this);
-    else this.emit("connect");
+    this.emit("connect");
   }
 
   private [ON_WRITE](status: number) {
@@ -443,9 +535,11 @@ class Socket extends EventEmitter {
 
   private [ON_READ](read: number) {
     if (!read) {
-      this.readable = false;
+      // this.readable = false;
       this.ended = true;
-      this[ON_END](null);
+
+      this[ON_END]();
+
       return EMPTY;
     }
 
@@ -460,7 +554,7 @@ class Socket extends EventEmitter {
 
     reading.done(err, read);
 
-    if (this._reads.top === this._reads.btm) {
+    if (this._reads.top === this._reads.bottom) {
       this._paused = true;
       return EMPTY;
     }
@@ -470,7 +564,7 @@ class Socket extends EventEmitter {
 
   private [ON_FINISH](status: number) {
     this.finished = true;
-    if (this.ended || !this.allowHalfOpen) this.close();
+    if (this.ended || !this.allowHalfOpen) this.destroy();
     this.emit("finish");
 
     const err = status < 0 ? new Error("End failed") : null;
@@ -483,34 +577,35 @@ class Socket extends EventEmitter {
   private [ON_CLOSE]() {
     if (this._timeout) clearTimeout(this._timeout);
 
-    if (this._server) unordered.remove(this._server.connections, this);
-
     this.closed = true;
     this._closing = callAll(this._closing, null);
 
-    if (this._reads.top !== this._reads.btm) this[ON_END](new Error("Closed"));
+    if (this._reads.top !== this._reads.bottom) {
+      this[ON_END](new Error("Closed"));
+    }
 
     binding.socket_tcp_destroy(this._handle);
-    this._handle = this._server = null;
+
+    this._handle = null;
 
     this.emit("close");
   }
 
-  private [ON_END](err: Error | null) {
-    while (this._reads.top !== this._reads.btm) {
+  private [ON_END](err: Error | null = null) {
+    while (this._reads.top !== this._reads.bottom) {
       this._reads.shift().done(err, 0);
     }
 
     if (err) return;
 
-    if (this.finished || !this.allowHalfOpen) this.close();
+    if (this.finished || !this.allowHalfOpen) this.destroy();
 
     this.emit("end");
   }
 
   private [NOT_READABLE](cb, data) {
-    if (this._queued) {
-      this._queued.push([3, data, 0, cb]);
+    if (this._queue) {
+      this._queue.push([3, data, 0, cb]);
 
       return;
     }
@@ -523,18 +618,18 @@ class Socket extends EventEmitter {
     );
   }
 
-  private [NOT_WRITABLE](cb, data, len) {
-    if (this._queued) {
+  private [NOT_WRITABLE](cb: Function, data?: any, len?: number) {
+    if (this._queue) {
       const type = data ? (Array.isArray(data) ? 1 : 0) : 2;
 
-      this._queued.push([type, data, len || 0, cb]);
+      this._queue.push([type, data, len || 0, cb]);
 
       return;
     }
 
     process.nextTick(
       cb,
-      this.finished ? null : new Error("Not writable"),
+      this.destroyed ? null : new Error("Not writable"),
       data,
     );
   }

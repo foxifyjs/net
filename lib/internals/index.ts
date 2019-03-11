@@ -1,10 +1,16 @@
+export { default as Queue } from "./Queue";
+export { default as Request } from "./Request";
+export { default as binding } from "./binding";
+
 // IPv4 Segment
 const v4Seg = "(?:[0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])";
 const v4Str = `(${v4Seg}[.]){3}${v4Seg}`;
+// tslint:disable-next-line:variable-name
 const IPv4Reg = new RegExp(`^${v4Str}$`);
 
 // IPv6 Segment
 const v6Seg = "(?:[0-9a-fA-F]{1,4})";
+// tslint:disable-next-line:variable-name
 const IPv6Reg = new RegExp(
   "^(" +
     `(?:${v6Seg}:){7}(?:${v6Seg}|:)|` +
@@ -44,5 +50,6 @@ export function isLegalPort(port: string | number) {
     return false;
   }
 
+  // tslint:disable-next-line:no-bitwise
   return +port === +port >>> 0 && port <= 0xffff;
 }

@@ -358,64 +358,6 @@ NAPI_METHOD(socket_tcp_close)
   return NULL;
 }
 
-NAPI_METHOD(socket_tcp_port)
-{
-  NAPI_ARGV(1)
-  NAPI_ARGV_BUFFER_CAST(socket_tcp_t *, self, 0)
-
-  int err;
-  struct sockaddr_in addr;
-  int addr_len = sizeof(struct sockaddr_in);
-
-  NAPI_UV_THROWS(err, uv_tcp_getsockname(
-                          &(self->handle),
-                          (struct sockaddr *)&addr,
-                          &addr_len))
-
-  int port = ntohs(addr.sin_port);
-
-  NAPI_RETURN_UINT32(port)
-}
-
-NAPI_METHOD(socket_tcp_remote_port)
-{
-  NAPI_ARGV(1)
-  NAPI_ARGV_BUFFER_CAST(socket_tcp_t *, self, 0)
-
-  int err;
-  struct sockaddr_in addr;
-  int addr_len = sizeof(struct sockaddr_in);
-
-  NAPI_UV_THROWS(err, uv_tcp_getpeername(
-                          &(self->handle),
-                          (struct sockaddr *)&addr,
-                          &addr_len))
-
-  int port = ntohs(addr.sin_port);
-
-  NAPI_RETURN_UINT32(port)
-}
-
-NAPI_METHOD(socket_tcp_remote_address)
-{
-  NAPI_ARGV(1)
-  NAPI_ARGV_BUFFER_CAST(socket_tcp_t *, self, 0)
-
-  int err;
-  struct sockaddr_in addr;
-  int addr_len = sizeof(struct sockaddr_in);
-
-  NAPI_UV_THROWS(err, uv_tcp_getpeername(
-                          &(self->handle),
-                          (struct sockaddr *)&addr,
-                          &addr_len))
-
-  char ip[INET_ADDRSTRLEN];
-  inet_ntop(AF_INET, &addr.sin_addr, ip, INET_ADDRSTRLEN);
-
-  NAPI_RETURN_STRING(ip)
-}
-
 NAPI_METHOD(socket_tcp_connect)
 {
   NAPI_ARGV(3)
@@ -531,6 +473,45 @@ NAPI_METHOD(socket_tcp_socketname)
   return obj;
 }
 
+NAPI_METHOD(socket_tcp_peername)
+{
+  NAPI_ARGV(1)
+  NAPI_ARGV_BUFFER_CAST(socket_tcp_t *, self, 0)
+
+  int err;
+  struct sockaddr_in addr;
+  int addr_len = sizeof(struct sockaddr_in);
+
+  NAPI_UV_THROWS(err, uv_tcp_getpeername(
+                          &(self->handle),
+                          (struct sockaddr *)&addr,
+                          &addr_len))
+
+  char ip[INET_ADDRSTRLEN];
+  inet_ntop(AF_INET, &addr.sin_addr, ip, INET_ADDRSTRLEN);
+
+  napi_value port;
+
+  NAPI_STATUS_THROWS(napi_create_uint32(env, ntohs(addr.sin_port), &port))
+
+  napi_value address;
+
+  NAPI_STATUS_THROWS(napi_create_string_utf8(env, (const char *)&ip, NAPI_AUTO_LENGTH, &address))
+
+  napi_value family;
+
+  NAPI_STATUS_THROWS(napi_create_string_utf8(env, (const char *)&"IPv4", NAPI_AUTO_LENGTH, &family))
+
+  napi_value obj;
+
+  NAPI_STATUS_THROWS(napi_create_object(env, &obj))
+  NAPI_STATUS_THROWS(napi_set_named_property(env, obj, "address", address))
+  NAPI_STATUS_THROWS(napi_set_named_property(env, obj, "port", port))
+  NAPI_STATUS_THROWS(napi_set_named_property(env, obj, "family", family))
+
+  return obj;
+}
+
 NAPI_METHOD(socket_on_fatal_exception)
 {
   NAPI_ARGV(1)
@@ -546,14 +527,12 @@ NAPI_INIT()
   NAPI_EXPORT_FUNCTION(socket_tcp_destroy)
   NAPI_EXPORT_FUNCTION(socket_tcp_listen)
   NAPI_EXPORT_FUNCTION(socket_tcp_connect)
-  NAPI_EXPORT_FUNCTION(socket_tcp_remote_port)
-  NAPI_EXPORT_FUNCTION(socket_tcp_remote_address)
   NAPI_EXPORT_FUNCTION(socket_tcp_keep_alive)
   NAPI_EXPORT_FUNCTION(socket_tcp_no_delay)
   NAPI_EXPORT_FUNCTION(socket_tcp_ref)
   NAPI_EXPORT_FUNCTION(socket_tcp_unref)
   NAPI_EXPORT_FUNCTION(socket_tcp_socketname)
-  NAPI_EXPORT_FUNCTION(socket_tcp_port)
+  NAPI_EXPORT_FUNCTION(socket_tcp_peername)
   NAPI_EXPORT_FUNCTION(socket_tcp_write)
   NAPI_EXPORT_FUNCTION(socket_tcp_write_two)
   NAPI_EXPORT_FUNCTION(socket_tcp_writev)
