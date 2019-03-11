@@ -494,16 +494,41 @@ NAPI_METHOD(socket_tcp_unref)
 
 NAPI_METHOD(socket_tcp_socketname)
 {
-  NAPI_ARGV(2)
+  NAPI_ARGV(1)
   NAPI_ARGV_BUFFER_CAST(socket_tcp_t *, self, 0)
-  NAPI_ARGV_BUFFER_CAST(struct sockaddr *, name, 1)
 
   int err;
-  int len;
+  struct sockaddr_in addr;
+  int addr_len = sizeof(struct sockaddr_in);
 
-  NAPI_UV_THROWS(err, uv_tcp_getsockname(&self->handle, name, &len));
+  NAPI_UV_THROWS(err, uv_tcp_getsockname(
+                          &(self->handle),
+                          (struct sockaddr *)&addr,
+                          &addr_len))
 
-  return NULL;
+  char ip[INET_ADDRSTRLEN];
+  inet_ntop(AF_INET, &addr.sin_addr, ip, INET_ADDRSTRLEN);
+
+  napi_value port;
+
+  NAPI_STATUS_THROWS(napi_create_uint32(env, ntohs(addr.sin_port), &port))
+
+  napi_value address;
+
+  NAPI_STATUS_THROWS(napi_create_string_utf8(env, (const char *)&ip, NAPI_AUTO_LENGTH, &address))
+
+  napi_value family;
+
+  NAPI_STATUS_THROWS(napi_create_string_utf8(env, (const char *)&"IPv4", NAPI_AUTO_LENGTH, &family))
+
+  napi_value obj;
+
+  NAPI_STATUS_THROWS(napi_create_object(env, &obj))
+  NAPI_STATUS_THROWS(napi_set_named_property(env, obj, "address", address))
+  NAPI_STATUS_THROWS(napi_set_named_property(env, obj, "port", port))
+  NAPI_STATUS_THROWS(napi_set_named_property(env, obj, "family", family))
+
+  return obj;
 }
 
 NAPI_METHOD(socket_on_fatal_exception)

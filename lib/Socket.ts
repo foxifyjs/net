@@ -219,11 +219,11 @@ class Socket extends EventEmitter {
 
   public address() {
     if (!this._socketName) {
-      const out = {} as any;
+      // const out = {} as any;
 
-      binding.socket_tcp_socketname(this._handle, out);
+      this._socketName = binding.socket_tcp_socketname(this._handle);
 
-      this._socketName = out;
+      // this._socketName = out;
     }
 
     return this._socketName as Socket.Address;
