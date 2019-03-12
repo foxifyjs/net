@@ -49,8 +49,8 @@ test("connect with and read/write and error", done => {
         done();
       });
 
-      client.read(Buffer.alloc(1024), err => expect(err).not.toBeNull());
-      client.write(Buffer.alloc(1024), err => expect(err).not.toBeNull());
+      client.read(1024, err => expect(err).not.toBeNull());
+      client.write(Buffer.alloc(1024), undefined, err => expect(err).not.toBeNull());
     });
   });
 });
@@ -62,7 +62,7 @@ test("close before connect", done => {
     const port = server.address().port;
     const client = turbo.connect(port);
 
-    client.close(() => {
+    client.destroy().on("close", () => {
       server.close();
 
       done();

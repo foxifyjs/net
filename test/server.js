@@ -1,4 +1,5 @@
 const turbo = require("..");
+const cluster = require("cluster");
 const os = require("os");
 const semver = require("semver");
 
@@ -41,18 +42,10 @@ test("listen stringed port", done => {
   });
 });
 
-test("address no listen", done => {
-  expect.assertions(1);
-
+test("address no listen", () => {
   const server = turbo.createServer();
 
-  try {
-    server.address();
-  } catch (err) {
-    expect(err).not.toBeNull();
-
-    done();
-  }
+  expect(server.address()).toEqual({});
 });
 
 test("listen on used port", done => {
@@ -75,6 +68,7 @@ test("listen on used port", done => {
 
 test(`listen on used port (SO_REUSEPORT) (${os.platform()}:${os.release()})`, done => {
   if (
+    !cluster.isWorker &&
     os.platform() === "linux" &&
     !semver.satisfies(semver.coerce(os.release()), ">=3.9")
   ) {

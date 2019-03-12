@@ -11,13 +11,15 @@ test("read", done => {
     const socket = turbo.connect(server.address().port);
 
     socket.on("connect", () => {
-      socket.read(Buffer.alloc(1024), (err, buf, n) => {
+      socket.read(1024, (err, buf, n) => {
         expect(err).toBeNull();
 
         expect(n > 0).toBe(true);
-        expect(buf.slice(0, n)).toEqual(Buffer.from("hello world").slice(0, n));
+        expect(buf.slice(0, n)).toEqual(
+          Buffer.from("hello world").slice(0, n),
+        );
 
-        socket.close();
+        socket.destroy();
         server.close();
 
         done();
@@ -42,14 +44,14 @@ test("many reads", done => {
     for (let i = 0; i < expected.length; i++) {
       const next = expected[i];
 
-      socket.read(Buffer.alloc(1), (err, buf) => {
+      socket.read(1, (err, buf) => {
         expect(err).toBeNull();
 
         expect(buf).toEqual(Buffer.from([next]));
       });
     }
 
-    socket.read(Buffer.alloc(1024), (err, buf, n) => {
+    socket.read(1024, (err, buf, n) => {
       server.close();
 
       expect(err).toBeNull();

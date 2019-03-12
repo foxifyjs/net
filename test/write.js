@@ -11,7 +11,7 @@ test("writev", done => {
       expect(buf).toEqual(Buffer.from("hello world"));
 
       server.close();
-      client.close(() => done());
+      client.destroy().on("close", () => done());
     });
 
     client.writev([Buffer.from("hello "), Buffer.from("world")]);
@@ -29,7 +29,7 @@ test("writev after connect", done => {
       expect(buf).toEqual(Buffer.from("hello world"));
 
       server.close();
-      client.close(() => done());
+      client.destroy().on("close", () => done());
     });
 
     client.on("connect", () => {
@@ -49,7 +49,7 @@ test("writev before and after connect", done => {
       expect(buf).toEqual(Buffer.from("hej verden og hello world"));
 
       server.close();
-      client.close(() => done());
+      client.destroy().on("close", () => done());
     });
 
     client.writev([
@@ -75,7 +75,7 @@ test("writev twice", done => {
       expect(buf).toEqual(Buffer.from("hej verden og hello world"));
 
       server.close();
-      client.close(() => done());
+      client.destroy().on("close", () => done());
     });
 
     client.writev([
@@ -100,7 +100,7 @@ test("write 256 buffers", done => {
       expect(buf).toEqual(expected);
 
       server.close();
-      client.close(() => done());
+      client.destroy().on("close", () => done());
     });
 
     for (let i = 0; i < 256; i++) {
@@ -113,25 +113,25 @@ test("write 256 buffers", done => {
 function read(socket, read, cb) {
   const buf = Buffer.alloc(read);
 
-  socket.read(buf, (err, next, n) => {
+  socket.read(read, (err, next, n) => {
     if (err) return cb(err);
 
     read -= n;
 
-    if (!read) return cb(null, buf);
+    if (!read) return cb(null, next);
 
-    socket.read(next.slice(n), cb);
+    socket.read(read, cb);
   });
 }
 
 function echo(socket) {
-  socket.read(Buffer.alloc(65536), function onRead(err, buf, n) {
+  socket.read(65536, function onRead(err, buf, n) {
     if (err) return;
 
     socket.write(buf, n, err => {
       if (err) return;
 
-      socket.read(buf, onRead);
+      socket.read(buf.length, onRead);
     });
   });
 }
