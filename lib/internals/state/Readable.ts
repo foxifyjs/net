@@ -10,7 +10,7 @@ namespace ReadableState {
 }
 
 class ReadableState extends State {
-  public queued: Buffer | null = Buffer.alloc(0);
+  public queued: Buffer = Buffer.allocUnsafe(this.highWaterMark);
 
   public pipes: Array<Writable | Socket> = [];
 
@@ -29,11 +29,6 @@ class ReadableState extends State {
   }
 
   // @ts-ignore
-  public append(length: number) {
-    return super.append(this.queued!, length);
-  }
-
-  // @ts-ignore
   public consume(bytes?: number) {
     const data = super.consume(bytes);
     const encoding = this.encoding;
@@ -43,7 +38,7 @@ class ReadableState extends State {
     return data.toString(encoding);
   }
 
-  public grow(size = this.highWaterMark - this.length) {
+  public queue(size = this.highWaterMark - this.length) {
     return (this.queued = Buffer.allocUnsafe(size));
   }
 
@@ -63,10 +58,9 @@ class ReadableState extends State {
     return this;
   }
 
-  public pipe(size: number) {
-    if (!size || !this.pipes.length) return this;
+  public pipe(data: Buffer) {
+    if (!this.pipes.length) return this;
 
-    const data = this.queued!.slice(0, size);
     const pipes = this.pipes;
 
     for (let i = pipes.length - 1; i >= 0; i--) pipes[i].write(data);

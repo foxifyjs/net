@@ -12,11 +12,8 @@ server.listen(8080, function () {
   const range = Array(8).join(',').split(',')
   const speed = speedometer()
 
-  socket.on("readable", () => {
-    let data;
-    while(data = socket.read()) {
-      speed(data.length);
-    }
+  socket.on("data", function(data) {
+    speed(data.length);
   });
 
   range.forEach(function () {

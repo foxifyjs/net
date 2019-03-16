@@ -245,18 +245,33 @@ class Socket extends EventEmitter {
     event: E,
     listener: Socket.EventListener<E>,
   ) {
-    if (event === "readable") {
-      const state = this._readableState;
+    super.on(event, listener);
 
-      if (!state.ended && !state.reading) {
-        if (this.readable) this.read(0);
-        else {
-          this.once("connect", () => this.read(0));
+    const state = this._readableState;
+
+    if (state.flowing === null) {
+      if (event === "data") {
+        state.flowing = true;
+
+        if (!state.ended && !state.reading) {
+          if (this.readable) this.read(0);
+          else {
+            this.once("connect", () => this.read(0));
+          }
+        }
+      } else if (event === "readable") {
+        state.flowing = false;
+
+        if (!state.ended && !state.reading) {
+          if (this.readable) this.read(0);
+          else {
+            this.once("connect", () => this.read(0));
+          }
         }
       }
     }
 
-    return super.on(event, listener);
+    return this;
   }
 
   public setEncoding(encoding?: string) {
@@ -419,13 +434,20 @@ class Socket extends EventEmitter {
   }
 
   public pipe(destination: Writable | Socket, options: { end?: boolean } = {}) {
-    this._readableState.addPipe(destination, this);
+    const state = this._readableState.addPipe(destination, this);
 
     if (options.end) this.once("end", () => destination.end());
 
-    this.on("readable", () => {
-      while (this.read());
-    });
+    if (state.flowing === null) {
+      state.flowing = true;
+
+      if (!state.ended && !state.reading) {
+        if (this.readable) this.read(0);
+        else {
+          this.once("connect", () => this.read(0));
+        }
+      }
+    }
 
     return destination;
   }
@@ -440,21 +462,35 @@ class Socket extends EventEmitter {
 
   public read(bytes?: number) {
     const state = this._readableState;
-    const size = state.highWaterMark - state.length;
+    let size = state.highWaterMark - state.length;
 
     if (size && !state.ended && !state.reading) {
       state.reading = true;
 
-      binding.socket_tcp_read(this._handle, state.grow(size));
+      if (state.flowing) {
+        const data = state.consume(bytes);
+
+        if (data !== null) {
+          process.nextTick(state.pipe.bind(state), data);
+          // state.pipe(data);
+
+          process.nextTick(this.emit.bind(this), "data", data);
+          // this.emit("data", data);
+
+          size = state.highWaterMark;
+        }
+      }
+
+      process.nextTick(
+        binding.socket_tcp_read,
+        this._handle,
+        state.queue(size),
+      );
     }
 
     if (bytes === 0) return null;
 
-    const data = state.consume(bytes);
-
-    if (data !== null) this.emit("data", data);
-
-    return data;
+    return state.consume(bytes);
   }
 
   public write(
@@ -617,16 +653,16 @@ class Socket extends EventEmitter {
     writeDone(writing);
   }
 
-  private _onRead(read: number) {
+  private _onRead(size: number | null) {
     const state = this._readableState;
 
-    if (read === null) {
+    if (size === null) {
       state.reading = false;
 
       return this.read(0);
     }
 
-    if (!read) {
+    if (!size) {
       this.readable = false;
 
       state.ended = true;
@@ -637,27 +673,29 @@ class Socket extends EventEmitter {
       return EMPTY;
     }
 
-    if (read < 0) {
-      const err = new Error("Read failed");
-
-      this.destroy(err);
+    if (size < 0) {
+      this.destroy(new Error("Read failed"));
 
       return EMPTY;
     }
 
-    if (state.pipes.length) {
-      state.pipe(read);
+    const data = state.queued!.slice(0, size);
 
-      state.consumed += read;
+    process.nextTick(state.pipe.bind(state), data);
 
-      return state.grow();
+    process.nextTick(this.emit.bind(this), "data", data);
+
+    if (state.flowing) {
+      state.consumed += size;
+
+      return state.queued;
     }
 
-    state.append(read);
+    state.append(data, size);
 
     this.emit("readable");
 
-    return state.grow();
+    return state.queue();
   }
 
   private _onFinish(status: number) {
