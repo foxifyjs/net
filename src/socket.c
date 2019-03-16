@@ -99,6 +99,13 @@ static void on_uv_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
   else
   {
     uv_read_stop(SOCKET_STREAM);
+
+    SOCKET_CALLBACK(self->on_read,
+                    napi_value result;
+                    napi_value argv[1];
+                    napi_get_null(env, &(argv[0]));
+                    NAPI_MAKE_CALLBACK_FATAL(1, argv, &result)
+                        NAPI_BUFFER(next, result))
   }
 }
 

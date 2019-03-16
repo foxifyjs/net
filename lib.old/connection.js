@@ -139,6 +139,10 @@ class Connection extends events.EventEmitter {
   }
 
   _onread(read) {
+    if (read === null) {
+      return EMPTY;
+    }
+
     if (!read) {
       this.readable = false;
       this.ended = true;

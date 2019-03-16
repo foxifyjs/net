@@ -1,6 +1,10 @@
+export { default as binding } from "./binding";
 export { default as Queue } from "./Queue";
 export { default as Request } from "./Request";
-export { default as binding } from "./binding";
+
+import * as state from "./state";
+
+export { state };
 
 // IPv4 Segment
 const v4Seg = "(?:[0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])";

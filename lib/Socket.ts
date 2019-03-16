@@ -1,7 +1,10 @@
 import * as dns from "dns";
 import { EventEmitter } from "events";
 import { Readable, Writable } from "stream";
-import { binding, Queue, Request } from "./internals";
+import { binding, Queue, Request, state as State } from "./internals";
+
+// tslint:disable-next-line:variable-name
+const { Readable: ReadableState } = State;
 
 const EMPTY = Buffer.alloc(0);
 
@@ -16,15 +19,10 @@ function writeDone(req: Request, err: Error | null = null) {
   }
 }
 
-function callAll(
-  list: Array<(err: Error | null) => void>,
-  err: Error | null = null,
-) {
-  for (let i = 0; i < list.length; i++) {
-    list[i](err);
-  }
+function flow(this: Socket, socket: Socket) {
+  const state = socket._readableState;
 
-  return null;
+  while (state.flowing && socket.read() !== null);
 }
 
 namespace Socket {
@@ -154,6 +152,11 @@ interface Socket extends EventEmitter {
 }
 
 class Socket extends EventEmitter {
+  /**
+   * unordered-set property
+   */
+  public _index = 0;
+
   public readonly allowHalfOpen: boolean;
 
   public readable = false;
@@ -169,6 +172,8 @@ class Socket extends EventEmitter {
   public localPort?: number;
 
   protected _handle = Buffer.alloc(binding.sizeof_socket_tcp_t);
+
+  protected _readableState = new ReadableState();
 
   protected _reads = new Queue(8, 0);
   protected _writes = new Queue(16, binding.sizeof_uv_write_t);
@@ -234,6 +239,64 @@ class Socket extends EventEmitter {
     }
 
     return this._peerName as Partial<Socket.Address>;
+  }
+
+  public on<E extends Socket.Event>(
+    event: E,
+    listener: Socket.EventListener<E>,
+  ) {
+    if (event === "readable") {
+      const state = this._readableState;
+
+      if (!state.ended && !state.reading) {
+        if (this.readable) this.read(0);
+        else {
+          this.once("connect", () => this.read(0));
+        }
+      }
+    }
+
+    return super.on(event, listener);
+  }
+
+  public setEncoding(encoding?: string) {
+    this._readableState.encoding = encoding;
+
+    this._encoding = encoding;
+
+    return this;
+  }
+
+  public setKeepAlive(enable = false, initialDelay = 0) {
+    binding.socket_tcp_keep_alive(this._handle, Number(enable), initialDelay);
+
+    return this;
+  }
+
+  public setNoDelay(noDelay = true) {
+    binding.socket_tcp_keep_alive(this._handle, Number(noDelay));
+
+    return this;
+  }
+
+  public setTimeout(timeout: number, callback?: () => void) {
+    if (this._timeout) clearTimeout(this._timeout);
+
+    if (timeout > 0) {
+      this._timeout = setTimeout(
+        this.emit.bind(this),
+        timeout,
+        "timeout",
+      ) as any;
+
+      if (callback) {
+        this.once("timeout", callback);
+      }
+    } else if (callback) {
+      this.removeListener("timeout", callback);
+    }
+
+    return this;
   }
 
   public connect(
@@ -305,6 +368,10 @@ class Socket extends EventEmitter {
 
     binding.socket_tcp_close(this._handle);
 
+    if (exception) this.emit("error", exception);
+
+    this.emit("close", !!exception);
+
     return this;
   }
 
@@ -351,102 +418,43 @@ class Socket extends EventEmitter {
     return this;
   }
 
-  public setEncoding(encoding?: string) {
-    this._encoding = encoding;
-
-    return this;
-  }
-
-  public setKeepAlive(enable = false, initialDelay = 0) {
-    binding.socket_tcp_keep_alive(this._handle, Number(enable), initialDelay);
-
-    return this;
-  }
-
-  public setNoDelay(noDelay = true) {
-    binding.socket_tcp_keep_alive(this._handle, Number(noDelay));
-
-    return this;
-  }
-
-  public setTimeout(timeout: number, callback?: () => void) {
-    if (this._timeout) clearTimeout(this._timeout);
-
-    if (timeout > 0) {
-      this._timeout = setTimeout(
-        this.emit.bind(this),
-        timeout,
-        "timeout",
-      ) as any;
-
-      if (callback) {
-        this.once("timeout", callback);
-      }
-    } else if (callback) {
-      this.removeListener("timeout", callback);
-    }
-
-    return this;
-  }
-
   public pipe(destination: Writable | Socket, options: { end?: boolean } = {}) {
-    const { end = false } = options;
+    this._readableState.addPipe(destination, this);
 
-    if (end) this.once("end", () => destination.end());
+    if (options.end) this.once("end", () => destination.end());
 
-    let bufferSize = 16 * 1024;
-    let max = 8; // up to 8mb
-    let full = 4;
-
-    for (let i = 0; i < 4; i++) {
-      this.read(bufferSize, onRead);
-    }
-
-    function onRead(_: any, buf: Buffer, n: number) {
-      if (!n) return;
-
-      if (n === buf.length) {
-        if (!--full && max) {
-          full = 4;
-          bufferSize *= 2;
-          max--;
-        }
-      } else {
-        full = 4;
-      }
-
-      destination.write(buf, undefined, onWrite);
-    }
-
-    // tslint:disable-next-line:no-this-assignment
-    const self = this;
-    function onWrite(err: Error | null, buf: Buffer, n: number) {
-      if (err) return;
-      if (n < bufferSize) n = bufferSize;
-      self.read(n, onRead);
-    }
+    this.on("readable", () => {
+      while (this.read());
+    });
 
     return destination;
   }
 
-  public read(
-    n: number,
-    cb: (err: Error | null, buffer: Buffer, bytesRead: number) => void = noop,
-  ) {
-    if (!this.readable) return this._notReadable(cb, n);
+  public unpipe(destination: Writable | Socket) {
+    this.removeListener("end", () => destination.end());
 
-    const reading = this._reads.push();
+    this._readableState.removePipe(destination, this);
 
-    const data = Buffer.allocUnsafe(n);
+    return this;
+  }
 
-    reading.buffer = data;
-    reading.callback = cb;
+  public read(bytes?: number) {
+    const state = this._readableState;
+    const size = state.highWaterMark - state.length;
 
-    if (this._paused) {
-      this._paused = false;
+    if (size && !state.ended && !state.reading) {
+      state.reading = true;
 
-      binding.socket_tcp_read(this._handle, data);
+      binding.socket_tcp_read(this._handle, state.grow(size));
     }
+
+    if (bytes === 0) return null;
+
+    const data = state.consume(bytes);
+
+    if (data !== null) this.emit("data", data);
+
+    return data;
   }
 
   public write(
@@ -569,7 +577,7 @@ class Socket extends EventEmitter {
           this._end(cb);
           break;
         case 3:
-          this.read(data, cb);
+          // this.read(data, cb);
           break;
         case 4:
           this.once("close", cb).destroy();
@@ -610,9 +618,18 @@ class Socket extends EventEmitter {
   }
 
   private _onRead(read: number) {
+    const state = this._readableState;
+
+    if (read === null) {
+      state.reading = false;
+
+      return this.read(0);
+    }
+
     if (!read) {
       this.readable = false;
 
+      state.ended = true;
       this.ended = true;
 
       this._onEnd();
@@ -620,29 +637,32 @@ class Socket extends EventEmitter {
       return EMPTY;
     }
 
-    const reading = this._reads.shift();
-    const err = read < 0 ? new Error("Read failed") : null;
+    if (read < 0) {
+      const err = new Error("Read failed");
 
-    if (err) {
       this.destroy(err);
 
-      reading.done(err, 0);
-
       return EMPTY;
     }
 
-    reading.done(err, read);
+    if (state.pipes.length) {
+      state.pipe(read);
 
-    if (this._reads.top === this._reads.bottom) {
-      this._paused = true;
+      state.consumed += read;
 
-      return EMPTY;
+      return state.grow();
     }
 
-    return this._reads.peek().buffer;
+    state.append(read);
+
+    this.emit("readable");
+
+    return state.grow();
   }
 
   private _onFinish(status: number) {
+    console.log("FINISHED");
+
     this.finished = true;
     if (this.ended || !this.allowHalfOpen) this.destroy();
     this.emit("finish");
@@ -653,6 +673,8 @@ class Socket extends EventEmitter {
   }
 
   private _onClose() {
+    console.log("CLOSED");
+
     if (this._timeout) clearTimeout(this._timeout);
 
     this.destroyed = true;
@@ -669,6 +691,8 @@ class Socket extends EventEmitter {
   }
 
   private _onEnd(err: Error | null = null) {
+    console.log("ENDED");
+
     while (this._reads.top !== this._reads.bottom) {
       this._reads.shift().done(err, 0);
     }
