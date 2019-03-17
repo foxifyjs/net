@@ -23,7 +23,17 @@ class State {
     this.highWaterMark = highWaterMark;
   }
 
-  public append(data: Buffer, length: number) {
+  public prepend(data: Buffer | Uint8Array, length = data.length) {
+    assert(Buffer.isBuffer(data), "'data' argument must be a buffer");
+
+    const buffer = this.buffer;
+
+    this.buffer = Buffer.concat([data, buffer], buffer.length + length);
+
+    return this;
+  }
+
+  public append(data: Buffer | Uint8Array, length = data.length) {
     assert(Buffer.isBuffer(data), "'data' argument must be a buffer");
 
     const buffer = this.buffer;

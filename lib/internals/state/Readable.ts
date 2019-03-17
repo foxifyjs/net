@@ -45,7 +45,7 @@ class ReadableState extends State {
   public addPipe(destination: Writable | Socket, socket: Socket) {
     unorderedSet.add(this.pipes, destination);
 
-    destination.emit("pipe", socket);
+    destination.emit("pipe", socket as any);
 
     return this;
   }
@@ -53,7 +53,7 @@ class ReadableState extends State {
   public removePipe(destination: Writable | Socket, socket: Socket) {
     unorderedSet.remove(this.pipes, destination);
 
-    destination.emit("unpipe", socket);
+    destination.emit("unpipe", socket as any);
 
     return this;
   }
