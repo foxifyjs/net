@@ -208,6 +208,12 @@ class Socket extends EventEmitter {
     return this._readableState.length;
   }
 
+  public get bytesRead() {
+    const state = this._readableState;
+
+    return state.length + state.consumed;
+  }
+
   constructor(options: Socket.Options = {}) {
     super();
 
