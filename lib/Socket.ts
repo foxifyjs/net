@@ -692,16 +692,10 @@ class Socket extends EventEmitter {
     process.nextTick(this._write.bind(this));
   }
 
-  private _onRead(size: number | null) {
+  private _onRead(size: number) {
     const state = this._readableState;
 
-    if (size === null) {
-      state.reading = false;
-
-      if (this.readable) return this.read(0);
-    }
-
-    if (!size) {
+    if (size === 0) {
       this.readable = false;
 
       state.ended = true;
