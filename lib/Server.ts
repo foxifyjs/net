@@ -20,13 +20,15 @@ namespace Server {
     exclusive?: boolean;
   }
 
-  export type Event = "close" | "connection" | "error" | "listening";
+  export type Event = "close" | "connection" | "error" | "listening" | string;
 
   export type EventListener<E extends Event> = E extends "connection"
     ? (socket: Socket) => void
     : E extends "error"
     ? (error: Error) => void
-    : () => void;
+    : E extends "close" | "listening"
+    ? () => void
+    : (...args: any[]) => void;
 }
 
 interface Server extends EventEmitter {
@@ -75,6 +77,7 @@ interface Server extends EventEmitter {
   emit(event: "connection", socket: Socket): boolean;
   emit(event: "error", error: Error): boolean;
   emit(event: "close" | "listening"): boolean;
+  emit(event: string, ...args: any[]): boolean;
 
   eventNames(): Server.Event[];
 
