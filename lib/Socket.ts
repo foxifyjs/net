@@ -1,20 +1,12 @@
 import * as dns from "dns";
 import { EventEmitter } from "events";
 import { Readable, Writable } from "stream";
-import { binding, Queue, Request, state as State } from "./internals";
+import { binding, ReadableState, WritableState } from "./internals";
 
 const EMPTY = Buffer.alloc(0);
 
 // tslint:disable-next-line:no-empty
 function noop() {}
-
-function writeDone(req: Request, err: Error | null = null) {
-  if (req.buffers) {
-    req.donev(err);
-  } else {
-    req.done(err, req.length);
-  }
-}
 
 namespace Socket {
   export interface Options {
@@ -166,22 +158,12 @@ class Socket extends EventEmitter {
 
   protected _handle = Buffer.alloc(binding.sizeof_socket_tcp_t);
 
-  protected _readableState: State.Readable;
-
-  protected _reads = new Queue(8, 0);
-  protected _writes = new Queue(16, binding.sizeof_uv_write_t);
+  protected _readableState: ReadableState;
+  protected _writableState: WritableState;
 
   protected _destroying = false;
-  protected _ending = false;
-  protected _finishing = [];
-  protected _closing = [];
-  protected _queue?: any[] = [];
-
-  protected _paused = true;
 
   protected _timeout?: NodeJS.Timeout;
-
-  protected _encoding?: string;
 
   protected _socketName?: Socket.Address;
   protected _peerName?: Socket.Address;
@@ -217,10 +199,18 @@ class Socket extends EventEmitter {
   constructor(options: Socket.Options = {}) {
     super();
 
-    const { allowHalfOpen = false, readableHighWaterMark } = options;
+    const {
+      allowHalfOpen = false,
+      readableHighWaterMark,
+      writableHighWaterMark,
+    } = options;
 
-    this._readableState = new State.Readable({
+    this._readableState = new ReadableState({
       highWaterMark: readableHighWaterMark,
+    });
+
+    this._writableState = new WritableState({
+      highWaterMark: writableHighWaterMark,
     });
 
     this.allowHalfOpen = allowHalfOpen;
@@ -282,11 +272,14 @@ class Socket extends EventEmitter {
     return this;
   }
 
-  // TODO:
   public setEncoding(encoding?: string) {
     this._readableState.encoding = encoding;
 
-    this._encoding = encoding;
+    return this;
+  }
+
+  public setDefaultEncoding(encoding?: string) {
+    this._writableState.encoding = encoding;
 
     return this;
   }
@@ -335,11 +328,11 @@ class Socket extends EventEmitter {
       if (event === "data") {
         state.flowing = true;
 
-        this._read();
+        this.read(0);
       } else if (event === "readable") {
         state.flowing = false;
 
-        this._read();
+        this.read(0);
       }
     }
 
@@ -400,18 +393,17 @@ class Socket extends EventEmitter {
 
   public read(bytes?: number) {
     const state = this._readableState;
-    let size = state.highWaterMark - state.length;
+    const length = state.length;
+    let size = state.highWaterMark - length;
 
-    if (state.flowing) {
-      const data = state.consume(bytes);
+    if (length && state.flowing) {
+      const data = state.consume(bytes)!;
 
-      if (data !== null) {
-        process.nextTick(state.pipe.bind(state), data);
+      process.nextTick(state.pipe.bind(state), data);
 
-        process.nextTick(this.emit.bind(this), "data", data);
+      process.nextTick(this.emit.bind(this), "data", data);
 
-        size = state.highWaterMark;
-      }
+      size = state.highWaterMark;
     }
 
     if (size) this._read(size);
@@ -429,7 +421,7 @@ class Socket extends EventEmitter {
     if (state.flowing === null) {
       state.flowing = true;
 
-      this._read();
+      this.read(0);
     }
 
     return destination;
@@ -450,9 +442,11 @@ class Socket extends EventEmitter {
       chunk = Buffer.from(chunk, encoding);
     }
 
-    process.nextTick(state.pipe.bind(state), chunk);
+    const encoded = state.encode(chunk);
 
-    process.nextTick(this.emit.bind(this), "data", chunk);
+    process.nextTick(state.pipe.bind(state), encoded);
+
+    process.nextTick(this.emit.bind(this), "data", encoded);
 
     if (state.flowing) {
       state.consumed += chunk.length;
@@ -485,108 +479,94 @@ class Socket extends EventEmitter {
 
   public write(
     data: string | Buffer | Uint8Array,
-    encoding = "utf8",
-    callback: (
-      err: Error | null,
-      buffer: Buffer,
-      length: number,
-    ) => void = noop,
+    callback?: (err: Error | null) => void,
+  ): boolean;
+  public write(
+    data: string | Buffer | Uint8Array,
+    encoding?: string,
+    callback?: (err: Error | null) => void,
+  ): boolean;
+  public write(
+    data: string | Buffer | Uint8Array,
+    encoding?: string | ((err: Error | null) => void),
+    callback?: (err: Error | null) => void,
   ) {
-    if (typeof data === "string") {
-      data = Buffer.from(data, encoding);
+    const state = this._writableState;
+    const highWaterMark = state.highWaterMark;
+
+    if (state.length >= highWaterMark) return false;
+
+    if (typeof encoding === "function") {
+      callback = encoding;
+      encoding = undefined;
     }
 
-    if (!this.writable) {
+    if (!this.writable && (state.ending || state.ended)) {
       this._notWritable(callback, data);
 
       return false;
     }
 
-    const writing = this._writes.push();
+    state.push("one", data, encoding, callback);
 
-    const length = data.length;
+    this._write();
 
-    writing.buffer = data as Buffer;
-    writing.length = length;
-    writing.callback = callback;
-
-    binding.socket_tcp_write(
-      this._handle,
-      writing.handle,
-      writing.buffer,
-      length,
-    );
-
-    return true;
+    return state.length < highWaterMark;
   }
 
   public writev(
     datas: Array<string | Buffer | Uint8Array>,
-    encoding = "utf8",
-    callback: (
-      err: Error | null,
-      buffer: Buffer,
-      length: number,
-    ) => void = noop,
+    encoding?: string | ((err: Error | null) => void),
+    callback?: (err: Error | null) => void,
   ) {
-    datas = datas.map(data => {
-      if (typeof data === "string") {
-        return Buffer.from(data, encoding);
-      }
+    const state = this._writableState;
+    const highWaterMark = state.highWaterMark;
 
-      return data;
-    });
+    if (state.length >= highWaterMark) return false;
 
-    if (!this.writable) {
+    if (typeof encoding === "function") {
+      callback = encoding;
+      encoding = undefined;
+    }
+
+    if (!this.writable && (state.ending || state.ended)) {
       this._notWritable(callback, datas);
 
       return false;
     }
 
-    const writing = this._writes.push();
+    state.push("many", datas, encoding, callback);
 
-    const lengths = datas.map(data => data.length);
+    this._write();
 
-    writing.buffers = datas as Buffer[];
-    writing.lengths = lengths;
-    writing.callback = callback;
-
-    if (datas.length === 2) {
-      // faster c case for just two buffers which is common
-      binding.socket_tcp_write_two(
-        this._handle,
-        writing.handle,
-        datas[0],
-        lengths[0],
-        datas[1],
-        lengths[1],
-      );
-    } else {
-      binding.socket_tcp_writev(this._handle, writing.handle, datas, lengths);
-    }
-
-    return true;
+    return state.length < highWaterMark;
   }
 
+  public end(callback?: () => void): void;
+  public end(data: string | Buffer | Uint8Array, callback?: () => void): void;
   public end(
-    data?: string | Buffer | Uint8Array,
-    encoding = "utf8",
-    callback = noop,
+    data: string | Buffer | Uint8Array,
+    encoding?: string,
+    callback?: () => void,
+  ): void;
+  public end(
+    data?: string | Buffer | Uint8Array | (() => void),
+    encoding?: string | (() => void),
+    callback?: () => void,
   ) {
     if (typeof data === "function") {
       callback = data;
       data = undefined;
+    } else if (typeof encoding === "function") {
+      callback = encoding;
+      encoding = undefined;
     }
 
-    if (!data) {
-      this._end(callback);
-
-      return this;
+    if (data !== undefined) {
+      this.write(data, encoding as (string | undefined));
     }
 
-    this.write(data, encoding, () => this._end(callback));
-
-    return this;
+    this._end(callback);
   }
 
   public destroy(exception: Error | null = null) {
@@ -609,16 +589,53 @@ class Socket extends EventEmitter {
     }
   }
 
-  protected _destroy(err: Error | null, callback: (err: Error | null) => void) {
-    if (this.destroyed) return;
+  protected _write() {
+    const state = this._writableState;
 
-    if (this._queue) {
-      this._queue.push([4, null, noop]);
+    if (!this.writable || !state.shouldConsume()) return;
+
+    if (state.chunks.length === 0) {
+      this.writable = false;
+
+      binding.socket_tcp_shutdown(this._handle);
 
       return;
     }
 
-    if (this._destroying) return;
+    const chunk = state.consume();
+
+    state.writing = true;
+
+    if (chunk.type === "one") {
+      // tslint:disable-next-line:no-shadowed-variable
+      const { handle, buffer, length } = chunk;
+
+      binding.socket_tcp_write(this._handle, handle, buffer, length);
+
+      return;
+    }
+
+    const { handle, buffers, lengths } = chunk;
+
+    if (buffers.length === 2) {
+      // faster c case for just two buffers which is common
+      binding.socket_tcp_write_two(
+        this._handle,
+        handle,
+        buffers[0],
+        lengths[0],
+        buffers[1],
+        lengths[1],
+      );
+
+      return;
+    }
+
+    binding.socket_tcp_writev(this._handle, handle, buffers, lengths);
+  }
+
+  protected _destroy(err: Error | null, callback: (err: Error | null) => void) {
+    if (this.destroyed || this._destroying) return;
 
     this.connecting = false;
     this._destroying = true;
@@ -632,53 +649,25 @@ class Socket extends EventEmitter {
     binding.socket_tcp_close(this._handle);
   }
 
-  protected _end(cb = noop) {
-    if (!this.writable) return this._notWritable(cb);
+  protected _end(callback?: () => void) {
+    const state = this._writableState;
 
-    this.once("end", cb);
-
-    if (this._ending) return;
-
-    this._ending = true;
-
-    this.writable = false;
-
-    binding.socket_tcp_shutdown(this._handle);
-  }
-
-  protected _unQueue() {
-    if (!this._queue) return;
-
-    const queue = this._queue;
-
-    this._queue = undefined;
-
-    while (queue.length) {
-      const [cmd, data, cb] = queue.shift();
-
-      switch (cmd) {
-        case 0:
-          this.write(data, undefined, cb);
-          break;
-        case 1:
-          this.writev(data, undefined, cb);
-          break;
-        case 2:
-          this._end(cb);
-          break;
-        case 3:
-          // this.read(data, cb);
-          break;
-        case 4:
-          this.once("close", cb).destroy();
-          break;
-      }
+    if (!this.writable && (state.ending || state.ended)) {
+      return this._notWritable(callback);
     }
+
+    if (callback) this.once("finish", callback);
+
+    if (state.ending) return;
+
+    state.ending = true;
+
+    this._write();
   }
 
   private _onConnect(status: number) {
     if (status < 0) {
-      this._unQueue();
+      this._write();
 
       return this.emit("error", new Error("Connect failed"));
     }
@@ -686,25 +675,21 @@ class Socket extends EventEmitter {
     this.readable = true;
     this.writable = true;
 
-    this._unQueue();
+    this._write();
 
     this.emit("connect");
+
+    this._write();
   }
 
   private _onWrite(status: number) {
-    const writing = this._writes.shift();
+    const state = this._writableState;
 
-    const err = status < 0 ? new Error("Write failed") : null;
+    state.shift(status < 0 ? new Error("Write failed") : null);
 
-    if (err) {
-      this.destroy(err);
+    state.writing = false;
 
-      writeDone(writing, err);
-
-      return;
-    }
-
-    writeDone(writing);
+    process.nextTick(this._write.bind(this));
   }
 
   private _onRead(size: number | null) {
@@ -713,14 +698,13 @@ class Socket extends EventEmitter {
     if (size === null) {
       state.reading = false;
 
-      return this.read(0);
+      if (this.readable) return this.read(0);
     }
 
     if (!size) {
       this.readable = false;
 
       state.ended = true;
-      this.ended = true;
 
       this._onEnd();
 
@@ -734,15 +718,18 @@ class Socket extends EventEmitter {
     }
 
     const data = state.queued!.slice(0, size);
+    const encoded = state.encode(data);
 
-    process.nextTick(state.pipe.bind(state), data);
+    process.nextTick(state.pipe.bind(state), encoded);
 
-    process.nextTick(this.emit.bind(this), "data", data);
+    process.nextTick(this.emit.bind(this), "data", encoded);
 
     if (state.flowing) {
       state.consumed += size;
 
-      return state.queued;
+      if (state.encoding) return state.queued;
+
+      return state.queue(state.highWaterMark);
     }
 
     state.append(data, size);
@@ -753,25 +740,21 @@ class Socket extends EventEmitter {
   }
 
   private _onFinish(status: number) {
-    console.log("FINISHED");
-
     this.finished = true;
-    if (this.ended || !this.allowHalfOpen) this.destroy();
+
+    if (this._readableState.ended || !this.allowHalfOpen) this.destroy();
+
     this.emit("finish");
 
-    const err = status < 0 ? new Error("End failed") : null;
-
-    if (err) this.destroy(err);
+    if (status < 0) this.destroy(new Error("End failed"));
   }
 
   private _onClose() {
-    console.log("CLOSED");
-
     if (this._timeout) clearTimeout(this._timeout);
 
     this.destroyed = true;
 
-    if (this._reads.top !== this._reads.bottom) {
+    if (this._readableState.length) {
       this._onEnd(new Error("Closed"));
     }
 
@@ -783,11 +766,9 @@ class Socket extends EventEmitter {
   }
 
   private _onEnd(err: Error | null = null) {
-    console.log("ENDED");
-
-    while (this._reads.top !== this._reads.bottom) {
-      this._reads.shift().done(err, 0);
-    }
+    // while (this._readableState.length) {
+    // this._reads.shift().done(err, 0);
+    // }
 
     if (err) return;
 
@@ -796,33 +777,10 @@ class Socket extends EventEmitter {
     this.emit("end");
   }
 
-  private _notReadable(cb: Function, data: any) {
-    if (this._queue) {
-      this._queue.push([3, data, cb]);
-
-      return;
-    }
-
+  private _notWritable(cb: Function = noop, data?: any) {
     process.nextTick(
       cb,
-      this.ended ? null : new Error("Not readable"),
-      data,
-      0,
-    );
-  }
-
-  private _notWritable(cb: Function, data?: any) {
-    if (this._queue) {
-      const type = data ? (Array.isArray(data) ? 1 : 0) : 2;
-
-      this._queue.push([type, data, cb]);
-
-      return;
-    }
-
-    process.nextTick(
-      cb,
-      this.destroyed ? null : new Error("Not writable"),
+      this.finished ? null : new Error("Not writable"),
       data,
     );
   }
