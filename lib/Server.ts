@@ -242,18 +242,7 @@ class Server extends EventEmitter {
     return this;
   }
 
-  private _onClose() {
-    this.listening = false;
-    this._socketName = undefined;
-
-    binding.socket_tcp_destroy(this._handle);
-
-    this._handle = undefined;
-
-    this.emit("close");
-  }
-
-  private _onAllocConnection() {
+  protected _allocConnection() {
     const socket = new Socket({
       allowHalfOpen: this.allowHalfOpen,
     });
@@ -270,7 +259,22 @@ class Server extends EventEmitter {
       unorderedSet.remove(this._connections, socket),
     );
 
-    return (socket as any)._handle;
+    return socket;
+  }
+
+  private _onClose() {
+    this.listening = false;
+    this._socketName = undefined;
+
+    binding.socket_tcp_destroy(this._handle);
+
+    this._handle = undefined;
+
+    this.emit("close");
+  }
+
+  private _onAllocConnection() {
+    return (this._allocConnection() as any)._handle;
   }
 }
 
