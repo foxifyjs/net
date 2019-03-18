@@ -247,17 +247,11 @@ class Server extends EventEmitter {
       allowHalfOpen: this.allowHalfOpen,
     });
 
-    (socket as any)._queue = undefined;
-
     unorderedSet.add(this._connections, socket);
 
-    socket.prependOnceListener("connect", () =>
-      this.emit("connection", socket),
-    );
-
-    socket.prependOnceListener("close", () =>
-      unorderedSet.remove(this._connections, socket),
-    );
+    socket
+      .once("connect", () => this.emit("connection", socket))
+      .once("close", () => unorderedSet.remove(this._connections, socket));
 
     return socket;
   }
