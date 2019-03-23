@@ -48,7 +48,7 @@ class WritableState {
   public corked = false;
 
   constructor(options: WritableState.Options = {}) {
-    const { highWaterMark = 1024 * 1024, encoding } = options;
+    const { highWaterMark = 16 * 1024, encoding } = options;
 
     this.highWaterMark = highWaterMark;
     this.encoding = encoding;

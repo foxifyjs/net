@@ -1,6 +1,6 @@
+import { EventEmitter } from "@foxify/events";
 import * as cluster from "cluster";
 import * as dns from "dns";
-import { EventEmitter } from "events";
 import * as os from "os";
 import * as semver from "semver";
 import * as unorderedSet from "unordered-set";
@@ -65,14 +65,6 @@ interface Server extends EventEmitter {
   ): this;
 
   removeAllListeners(event?: Server.Event): this;
-
-  setMaxListeners(n: number): this;
-
-  getMaxListeners(): number;
-
-  listeners(event: Server.Event): Function[];
-
-  rawListeners(event: Server.Event): Function[];
 
   emit(event: "connection", socket: Socket): boolean;
   emit(event: "error", error: Error): boolean;
@@ -247,11 +239,13 @@ class Server extends EventEmitter {
       allowHalfOpen: this.allowHalfOpen,
     });
 
-    unorderedSet.add(this._connections, socket);
+    process.nextTick(() => {
+      unorderedSet.add(this._connections, socket);
 
-    socket
-      .once("connect", () => this.emit("connection", socket))
-      .once("close", () => unorderedSet.remove(this._connections, socket));
+      socket
+        .once("connect", () => this.emit("connection", socket))
+        .once("close", () => unorderedSet.remove(this._connections, socket));
+    });
 
     return socket;
   }

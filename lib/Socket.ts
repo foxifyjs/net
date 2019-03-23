@@ -1,5 +1,5 @@
+import { EventEmitter } from "@foxify/events";
 import * as dns from "dns";
-import { EventEmitter } from "events";
 import { Readable, Writable } from "stream";
 import { binding, ReadableState, WritableState } from "./internals";
 
@@ -100,14 +100,6 @@ interface Socket extends EventEmitter {
   ): this;
 
   removeAllListeners(event?: Socket.Event): this;
-
-  setMaxListeners(n: number): this;
-
-  getMaxListeners(): number;
-
-  listeners(event: Socket.Event): Function[];
-
-  rawListeners(event: Socket.Event): Function[];
 
   emit(event: "pipe" | "unpipe", stream: Readable): boolean;
   emit(event: "close", hadError?: boolean): boolean;
@@ -667,15 +659,13 @@ class Socket extends EventEmitter {
 
   private _onConnect(status: number) {
     if (status < 0) {
-      this._write();
+      process.nextTick(this._write.bind(this));
 
       return this.emit("error", new Error("Connect failed"));
     }
 
     this.readable = true;
     this.writable = true;
-
-    this._write();
 
     this.emit("connect");
 
@@ -689,7 +679,7 @@ class Socket extends EventEmitter {
 
     state.writing = false;
 
-    process.nextTick(this._write.bind(this));
+    this._write();
   }
 
   private _onRead(size: number) {
