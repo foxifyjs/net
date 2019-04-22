@@ -142,9 +142,47 @@ static void on_uv_connect(uv_connect_t *req, int status)
 
 NAPI_METHOD(socket_tcp_init)
 {
-  NAPI_ARGV(9)
+  NAPI_ARGV(7)
   NAPI_ARGV_BUFFER_CAST(socket_tcp_t *, self, 0)
-  NAPI_ARGV_UINT32(reusePort, 8)
+
+  int err;
+  uv_tcp_t *handle = &(self->handle);
+
+  handle->data = self;
+  self->env = env;
+
+  NAPI_UV_THROWS(err, uv_tcp_init(uv_default_loop(), handle));
+
+  napi_create_reference(env, argv[1], 1, &(self->ctx));
+  napi_create_reference(env, argv[2], 1, &(self->on_connect));
+  napi_create_reference(env, argv[3], 1, &(self->on_write));
+  napi_create_reference(env, argv[4], 1, &(self->on_read));
+  napi_create_reference(env, argv[5], 1, &(self->on_finish));
+  napi_create_reference(env, argv[6], 1, &(self->on_close));
+
+  return NULL;
+}
+
+NAPI_METHOD(socket_tcp_destroy)
+{
+  NAPI_ARGV(1)
+  NAPI_ARGV_BUFFER_CAST(socket_tcp_t *, self, 0)
+
+  napi_delete_reference(env, self->ctx);
+  napi_delete_reference(env, self->on_connect);
+  napi_delete_reference(env, self->on_write);
+  napi_delete_reference(env, self->on_read);
+  napi_delete_reference(env, self->on_finish);
+  napi_delete_reference(env, self->on_close);
+
+  return NULL;
+}
+
+NAPI_METHOD(socket_tcp_init_server)
+{
+  NAPI_ARGV(5)
+  NAPI_ARGV_BUFFER_CAST(socket_tcp_t *, self, 0)
+  NAPI_ARGV_UINT32(reusePort, 4)
 
   int err;
   uv_tcp_t *handle = &(self->handle);
@@ -183,26 +221,18 @@ NAPI_METHOD(socket_tcp_init)
 
   napi_create_reference(env, argv[1], 1, &(self->ctx));
   napi_create_reference(env, argv[2], 1, &(self->on_alloc_connection));
-  napi_create_reference(env, argv[3], 1, &(self->on_connect));
-  napi_create_reference(env, argv[4], 1, &(self->on_write));
-  napi_create_reference(env, argv[5], 1, &(self->on_read));
-  napi_create_reference(env, argv[6], 1, &(self->on_finish));
-  napi_create_reference(env, argv[7], 1, &(self->on_close));
+  napi_create_reference(env, argv[3], 1, &(self->on_close));
 
   return NULL;
 }
 
-NAPI_METHOD(socket_tcp_destroy)
+NAPI_METHOD(socket_tcp_destroy_server)
 {
   NAPI_ARGV(1)
   NAPI_ARGV_BUFFER_CAST(socket_tcp_t *, self, 0)
 
   napi_delete_reference(env, self->ctx);
   napi_delete_reference(env, self->on_alloc_connection);
-  napi_delete_reference(env, self->on_connect);
-  napi_delete_reference(env, self->on_write);
-  napi_delete_reference(env, self->on_read);
-  napi_delete_reference(env, self->on_finish);
   napi_delete_reference(env, self->on_close);
 
   return NULL;
@@ -511,6 +541,8 @@ NAPI_INIT()
 {
   NAPI_EXPORT_FUNCTION(socket_tcp_init)
   NAPI_EXPORT_FUNCTION(socket_tcp_destroy)
+  NAPI_EXPORT_FUNCTION(socket_tcp_init_server)
+  NAPI_EXPORT_FUNCTION(socket_tcp_destroy_server)
   NAPI_EXPORT_FUNCTION(socket_tcp_listen)
   NAPI_EXPORT_FUNCTION(socket_tcp_connect)
   NAPI_EXPORT_FUNCTION(socket_tcp_keep_alive)

@@ -35,13 +35,11 @@ class Connection extends events.EventEmitter {
     binding.socket_tcp_init(
       this._handle,
       this,
-      null,
       this._onconnect,
       this._onwrite,
       this._onread,
       this._onfinish,
       this._onclose,
-      0
     );
 
     if (server) {

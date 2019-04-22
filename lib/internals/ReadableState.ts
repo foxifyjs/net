@@ -1,5 +1,4 @@
 import * as assert from "assert";
-import { Writable } from "stream";
 import * as unorderedSet from "unordered-set";
 import { Socket } from "..";
 
@@ -19,9 +18,9 @@ class ReadableState {
 
   public consumed = 0;
 
-  public queued: Buffer;
+  public queued: Buffer = EMPTY;
 
-  public pipes: Writable[] = [];
+  public pipes: Array<Socket<any>> = [];
 
   public reading = false;
 
@@ -36,12 +35,10 @@ class ReadableState {
   }
 
   constructor(options: ReadableState.Options = {}) {
-    const { highWaterMark = 16 * 1024, encoding } = options;
+    const { highWaterMark = 1024 * 1024, encoding } = options;
 
     this.highWaterMark = highWaterMark;
     this.encoding = encoding;
-
-    this.queued = Buffer.allocUnsafe(highWaterMark);
   }
 
   public prepend(data: Buffer | Uint8Array, length = data.length) {
@@ -100,7 +97,7 @@ class ReadableState {
     return (this.queued = Buffer.allocUnsafe(size));
   }
 
-  public addPipe(destination: Writable | Socket, socket: Socket) {
+  public addPipe(destination: Socket<any>, socket: Socket<any>) {
     unorderedSet.add(this.pipes, destination);
 
     destination.emit("pipe", socket as any);
@@ -108,7 +105,7 @@ class ReadableState {
     return this;
   }
 
-  public removePipe(destination: Writable | Socket, socket: Socket) {
+  public removePipe(destination: Socket<any>, socket: Socket<any>) {
     unorderedSet.remove(this.pipes, destination);
 
     destination.emit("unpipe", socket as any);

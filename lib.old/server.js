@@ -77,14 +77,10 @@ class Server extends events.EventEmitter {
 
     this._handle = Buffer.alloc(binding.sizeof_socket_tcp_t);
 
-    binding.socket_tcp_init(
+    binding.socket_tcp_init_server(
       this._handle,
       this,
       this._onallocconnection,
-      null,
-      null,
-      null,
-      null,
       this._onclose,
       this.reusePort
     );
@@ -93,7 +89,7 @@ class Server extends events.EventEmitter {
   _onclose() {
     this._closed = false;
     this._address = null;
-    binding.socket_tcp_destroy(this._handle);
+    binding.socket_tcp_destroy_server(this._handle);
     this._handle = null;
     this.emit("close");
   }

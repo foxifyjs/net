@@ -48,7 +48,7 @@ class WritableState {
   public corked = false;
 
   constructor(options: WritableState.Options = {}) {
-    const { highWaterMark = 16 * 1024, encoding } = options;
+    const { highWaterMark = 1024 * 1024, encoding } = options;
 
     this.highWaterMark = highWaterMark;
     this.encoding = encoding;
@@ -101,7 +101,7 @@ class WritableState {
     encoding = this.encoding,
     callback: (err: Error | null) => void = noop,
   ) {
-    if (typeof buffer === "string") buffer = Buffer.from(buffer, encoding);
+    if (typeof buffer === "string") buffer = Buffer.from(buffer, encoding as any);
 
     const length = buffer.length;
 
@@ -111,7 +111,7 @@ class WritableState {
       length,
       handle: Buffer.alloc(HANDLE),
       type: "one",
-    };
+    } as any;
 
     this.chunks.push(chunk);
 
@@ -129,7 +129,7 @@ class WritableState {
     let length = 0;
 
     buffers = buffers.map(buffer => {
-      if (typeof buffer === "string") buffer = Buffer.from(buffer, encoding);
+      if (typeof buffer === "string") buffer = Buffer.from(buffer, encoding as any);
 
       const l = buffer.length;
       lengths.push(l);

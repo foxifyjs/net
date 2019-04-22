@@ -195,14 +195,10 @@ class Server extends EventEmitter {
       if (!this._handle) {
         this._handle = Buffer.alloc(binding.sizeof_socket_tcp_t);
 
-        binding.socket_tcp_init(
+        binding.socket_tcp_init_server(
           this._handle,
           this,
           this._onAllocConnection,
-          null,
-          null,
-          null,
-          null,
           this._onClose,
           this._reusePort || exclusive,
         );
@@ -254,7 +250,7 @@ class Server extends EventEmitter {
     this.listening = false;
     this._socketName = undefined;
 
-    binding.socket_tcp_destroy(this._handle);
+    binding.socket_tcp_destroy_server(this._handle);
 
     this._handle = undefined;
 

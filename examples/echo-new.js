@@ -1,14 +1,12 @@
-const turbo = require('..')
+const net = require('..')
 const speedometer = require('speedometer')
 
-const server = turbo.createServer()
-
-server.on('connection', function (socket) {
+const server = net.createServer({}, function (socket) {
   socket.pipe(socket)
 })
 
 server.listen(8080, function () {
-  const socket = turbo.connect(8080, 'localhost')
+  const socket = net.connect(8080, 'localhost')
   const range = Array(8).join(',').split(',')
   const speed = speedometer()
 

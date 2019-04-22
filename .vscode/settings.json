@@ -5,6 +5,7 @@
     "napi-macros.h": "c",
     "typeinfo": "c",
     "stdio.h": "c",
-    "cstdio": "c"
+    "cstdio": "c",
+    "uv.h": "c"
   }
 }

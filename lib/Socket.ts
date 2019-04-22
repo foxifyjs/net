@@ -1,6 +1,5 @@
 import { EventEmitter } from "@foxify/events";
 import * as dns from "dns";
-import { Readable, Writable } from "stream";
 import { binding, ReadableState, WritableState } from "./internals";
 
 const EMPTY = Buffer.alloc(0);
@@ -33,102 +32,29 @@ namespace Socket {
     lookup?: Function;
   }
 
-  export type Event =
-    | "finish"
-    | "pipe"
-    | "unpipe"
-    | "readable"
-    | "close"
-    | "connect"
-    | "data"
-    | "drain"
-    | "end"
-    | "error"
-    | "lookup"
-    | "ready"
-    | "timeout";
-
-  export type EventListener<E extends Event> = E extends "pipe" | "unpipe"
-    ? (stream: Readable) => void
-    : E extends "close"
-    ? (hadError?: boolean) => void
-    : E extends "data"
-    ? (data: Buffer | string) => void
-    : E extends "error"
-    ? (error: Error) => void
-    : E extends "lookup"
-    ? (
-        err: Error | null,
-        address: string,
-        family: string | null,
-        host: string,
-      ) => void
-    : () => void;
+  export interface Events {
+    pipe: (stream: Socket<any>) => void;
+    unpipe: (stream: Socket<any>) => void;
+    data: (data: Buffer | string) => void;
+    error: (error: Error) => void;
+    close: (hadError: boolean) => void;
+    lookup: (
+      err: Error | null,
+      address: string,
+      family: string | null,
+      host: string,
+    ) => void;
+    finish: () => void;
+    readable: () => void;
+    connect: () => void;
+    drain: () => void;
+    end: () => void;
+    ready: () => void;
+    timeout: () => void;
+  }
 }
 
-interface Socket extends EventEmitter {
-  addListener<E extends Socket.Event>(
-    event: E,
-    listener: Socket.EventListener<E>,
-  ): this;
-
-  on<E extends Socket.Event>(event: E, listener: Socket.EventListener<E>): this;
-
-  once<E extends Socket.Event>(
-    event: E,
-    listener: Socket.EventListener<E>,
-  ): this;
-
-  prependListener<E extends Socket.Event>(
-    event: E,
-    listener: Socket.EventListener<E>,
-  ): this;
-
-  prependOnceListener<E extends Socket.Event>(
-    event: E,
-    listener: Socket.EventListener<E>,
-  ): this;
-
-  removeListener<E extends Socket.Event>(
-    event: E,
-    listener: Socket.EventListener<E>,
-  ): this;
-
-  off<E extends Socket.Event>(
-    event: E,
-    listener: Socket.EventListener<E>,
-  ): this;
-
-  removeAllListeners(event?: Socket.Event): this;
-
-  emit(event: "pipe" | "unpipe", stream: Readable): boolean;
-  emit(event: "close", hadError?: boolean): boolean;
-  emit(event: "data", data: Buffer | string): boolean;
-  emit(event: "error", error: Error): boolean;
-  emit(
-    event: "lookup",
-    err: Error | null,
-    address: string,
-    family: string | null,
-    host: string,
-  ): boolean;
-  emit(
-    event:
-      | "finish"
-      | "readable"
-      | "connect"
-      | "drain"
-      | "end"
-      | "ready"
-      | "timeout",
-  ): boolean;
-
-  eventNames(): Socket.Event[];
-
-  listenerCount(type: Socket.Event): number;
-}
-
-class Socket extends EventEmitter {
+class Socket<Events = {}> extends EventEmitter<Socket.Events & Events> {
   /**
    * unordered-set property
    */
@@ -210,13 +136,11 @@ class Socket extends EventEmitter {
     binding.socket_tcp_init(
       this._handle,
       this,
-      null,
       this._onConnect,
       this._onWrite,
       this._onRead,
       this._onFinish,
       this._onClose,
-      0,
     );
   }
 
@@ -308,11 +232,18 @@ class Socket extends EventEmitter {
     return this;
   }
 
-  public on<E extends Socket.Event>(
-    event: E,
-    listener: Socket.EventListener<E>,
-  ) {
-    super.on(event, listener);
+  public on(
+    event: "error",
+    listener: (error: Error) => void,
+    context?: any,
+  ): this;
+  public on<K extends EventEmitter.Event<Socket.Events & Events>>(
+    event: K,
+    listener: EventEmitter.Listener<Socket.Events & Events, K>,
+    context: any,
+  ): this;
+  public on(event: any, listener: EventEmitter.DefaultListener, context: any) {
+    super.on(event, listener, context);
 
     const state = this._readableState;
 
@@ -405,7 +336,7 @@ class Socket extends EventEmitter {
     return state.consume(bytes);
   }
 
-  public pipe(destination: Writable | Socket, options: { end?: boolean } = {}) {
+  public pipe(destination: Socket<any>, options: { end?: boolean } = {}) {
     const state = this._readableState.addPipe(destination, this);
 
     if (options.end) this.once("end", () => destination.end());
@@ -419,7 +350,7 @@ class Socket extends EventEmitter {
     return destination;
   }
 
-  public unpipe(destination: Writable | Socket) {
+  public unpipe(destination: Socket<any>) {
     this.removeListener("end", () => destination.end());
 
     this._readableState.removePipe(destination, this);
@@ -431,7 +362,7 @@ class Socket extends EventEmitter {
     const state = this._readableState;
 
     if (typeof chunk === "string") {
-      chunk = Buffer.from(chunk, encoding);
+      chunk = Buffer.from(chunk, encoding as any);
     }
 
     const encoded = state.encode(chunk);
@@ -455,7 +386,7 @@ class Socket extends EventEmitter {
     const state = this._readableState;
 
     if (typeof chunk === "string") {
-      chunk = Buffer.from(chunk, state.encoding);
+      chunk = Buffer.from(chunk, state.encoding as any);
     }
 
     state.prepend(chunk);
@@ -746,7 +677,7 @@ class Socket extends EventEmitter {
 
     this._handle = null as any;
 
-    this.emit("close", this._hadError);
+    this.emit("close" as any, this._hadError);
   }
 
   private _onEnd(err: Error | null = null) {
